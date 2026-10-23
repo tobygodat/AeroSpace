@@ -32,6 +32,121 @@ struct WorkspaceLayoutTest {
         #expect(parseCommand("workspace-layout spiral", allowExecAndForget: false, allowEval: false).cmdOrNil == nil)
     }
 
+    @Test func tilesPolicyBindsNextToTheMostRecentWindow() {
+        let workspace = Workspace.get(byName: "tiles")
+        #expect(workspace.layout == .tiles)
+        let first = workspace.openWindow(id: 1)
+        workspace.openWindow(id: 2)
+        workspace.openWindow(id: 3)
+        #expect(workspace.tilingWindowIds == [1, 2, 3])
+
+        #expect(first.focusWindow())
+        workspace.openWindow(id: 4)
+        #expect(workspace.tilingWindowIds == [1, 4, 2, 3])
+        #expect(workspace.rootTilingContainer.children.count == 4, "tiles never nests on its own")
+    }
+
+    @Test func dwindleSplitsTheMostRecentWindowAlongItsLongerSide() async throws {
+        let workspace = Workspace.get(byName: "dwindle")
+        workspace.layoutOverride = .dwindle
+
+        workspace.openWindow(id: 1)
+        try await workspace.layoutWorkspace()
+        expectRect(workspace.tilingFrames[0].rect, rect(0, 0, 1920, 1080))
+
+        workspace.openWindow(id: 2)
+        try await workspace.layoutWorkspace()
+        expectRect(workspace.tilingFrames[0].rect, rect(0, 0, 960, 1080))
+        expectRect(workspace.tilingFrames[1].rect, rect(960, 0, 960, 1080))
+
+        workspace.openWindow(id: 3)
+        try await workspace.layoutWorkspace()
+        expectRect(workspace.tilingFrames[1].rect, rect(960, 0, 960, 540), "2 keeps the top of its column")
+        expectRect(workspace.tilingFrames[2].rect, rect(960, 540, 960, 540), "3 takes the bottom of 2's column")
+
+        workspace.openWindow(id: 4)
+        try await workspace.layoutWorkspace()
+        expectRect(workspace.tilingFrames[2].rect, rect(960, 540, 480, 540))
+        expectRect(workspace.tilingFrames[3].rect, rect(1440, 540, 480, 540), "4 takes the right half of 3's cell")
+
+        workspace.openWindow(id: 5)
+        try await workspace.layoutWorkspace()
+        expectRect(workspace.tilingFrames[0].rect, rect(0, 0, 960, 1080))
+        expectRect(workspace.tilingFrames[1].rect, rect(960, 0, 960, 540))
+        expectRect(workspace.tilingFrames[2].rect, rect(960, 540, 480, 540))
+        expectRect(workspace.tilingFrames[3].rect, rect(1440, 540, 480, 270))
+        expectRect(workspace.tilingFrames[4].rect, rect(1440, 810, 480, 270), "5 takes the bottom half of 4's cell")
+        #expect(diagram(frames: workspace.tilingFrames, screen: testScreen) == """
+        +-----------------------+-----------------------+
+        |                       |                       |
+        |                       |                       |
+        |                       |           2           |
+        |                       |                       |
+        |                       |                       |
+        |           1           +-----------+-----------+
+        |                       |           |     4     |
+        |                       |           |           |
+        |                       |     3     +-----------+
+        |                       |           |     5     |
+        |                       |           |           |
+        +-----------------------+-----------+-----------+
+        """)
+    }
+
+    @Test func dwindleFollowsFocus() async throws {
+        let workspace = Workspace.get(byName: "dwindle")
+        workspace.layoutOverride = .dwindle
+        let first = workspace.openWindow(id: 1)
+        workspace.openWindow(id: 2)
+        workspace.openWindow(id: 3)
+        try await workspace.layoutWorkspace()
+
+        #expect(first.focusWindow())
+        workspace.openWindow(id: 4)
+        try await workspace.layoutWorkspace()
+        expectRect(workspace.tilingFrames[0].rect, rect(0, 0, 960, 540), "1's cell is taller than wide, so it splits top/bottom")
+        expectRect(workspace.tilingFrames[3].rect, rect(0, 540, 960, 540))
+        expectRect(workspace.tilingFrames[1].rect, rect(960, 0, 960, 540), "2 is untouched")
+        expectRect(workspace.tilingFrames[2].rect, rect(960, 540, 960, 540), "3 is untouched")
+        #expect(diagram(frames: workspace.tilingFrames, screen: testScreen) == """
+        +-----------------------+-----------------------+
+        |                       |                       |
+        |                       |                       |
+        |           1           |           2           |
+        |                       |                       |
+        |                       |                       |
+        +-----------------------+-----------------------+
+        |                       |                       |
+        |                       |                       |
+        |           4           |           3           |
+        |                       |                       |
+        |                       |                       |
+        +-----------------------+-----------------------+
+        """)
+    }
+
+    @Test func closingADwindleWindowGivesItsCellBack() async throws {
+        config.enableNormalizationFlattenContainers = true
+        let workspace = Workspace.get(byName: "dwindle")
+        workspace.layoutOverride = .dwindle
+        workspace.openWindow(id: 1)
+        workspace.openWindow(id: 2)
+        let third = workspace.openWindow(id: 3)
+        try await workspace.layoutWorkspace()
+        expectRect(workspace.tilingFrames[1].rect, rect(960, 0, 960, 540))
+
+        third.closeAxWindow()
+        workspace.normalizeContainers()
+        try await workspace.layoutWorkspace()
+        #expect(workspace.tilingWindowIds == [1, 2])
+        expectRect(workspace.tilingFrames[1].rect, rect(960, 0, 960, 1080), "2 is back to the full right half")
+        #expect(workspace.rootTilingContainer.children.allSatisfy { $0 is Window }, "the empty column is gone")
+
+        workspace.openWindow(id: 4)
+        try await workspace.layoutWorkspace()
+        expectRect(workspace.tilingFrames[2].rect, rect(960, 540, 960, 540), "the next window splits 2 again")
+    }
+
     @Test func estimatedVirtualRectMatchesLayoutRecursive() async throws {
         let workspace = Workspace.get(byName: "estimate")
         let root = workspace.rootTilingContainer

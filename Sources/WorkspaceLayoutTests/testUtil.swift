@@ -69,6 +69,9 @@ func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> Rect {
     Rect(topLeftX: x, topLeftY: y, width: w, height: h)
 }
 
+/// The unit-test monitor (Sources/AppBundle/model/Monitor.swift)
+let testScreen = rect(0, 0, 1920, 1080)
+
 func expectRect(_ actual: Rect?, _ expected: Rect, _ comment: Comment? = nil, sourceLocation: SourceLocation = #_sourceLocation) {
     let message = "\(comment.map { "\($0): " } ?? "")expected \(expected), got \(actual.map { "\($0)" } ?? "nil")"
     #expect(actual?.isClose(to: expected) == true, Comment(rawValue: message), sourceLocation: sourceLocation)

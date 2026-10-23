@@ -54,7 +54,59 @@ extension Workspace {
     /// - floating: the floating container; the window id is appended to `windowsFloatedByLayout`
     @MainActor
     func bindingDataForNewTilingWindow(windowId: UInt32, window: Window?) -> BindingData {
-        die("TODO(AERO-4 engine): bindingDataForNewTilingWindow")
+        switch layout {
+            case .tiles: tilesBindingData()
+            case .dwindle: dwindleBindingData()
+            case .floating: floatingBindingData(windowId: windowId)
+        }
+    }
+
+    @MainActor
+    private func tilesBindingData() -> BindingData {
+        let mruWindow = mostRecentWindowRecursive
+        if let mruWindow, let tilingParent = mruWindow.parent as? TilingContainer {
+            return BindingData(
+                parent: tilingParent,
+                adaptiveWeight: WEIGHT_AUTO,
+                index: mruWindow.ownIndex.orDie() + 1,
+            )
+        } else {
+            return BindingData(
+                parent: rootTilingContainer,
+                adaptiveWeight: WEIGHT_AUTO,
+                index: INDEX_BIND_LAST,
+            )
+        }
+    }
+
+    /// Hyprland's dwindle: split the most recent window's area along its longer side. A lone window in its
+    /// container just gets a sibling and the container takes the split orientation. Otherwise the window is
+    /// wrapped in a new container that keeps its slot and weight, and the new window joins it as an equal half
+    @MainActor
+    private func dwindleBindingData() -> BindingData {
+        guard let mru = rootTilingContainer.mostRecentWindowRecursive, let parent = mru.parent as? TilingContainer else {
+            return BindingData(parent: rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        }
+        let rect = mru.estimatedVirtualRect
+        let orientation: Orientation = rect.width >= rect.height ? .h : .v
+        if parent.children.count == 1 {
+            parent.setOrientationOnly(orientation)
+            return BindingData(parent: parent, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        }
+        let index = mru.ownIndex.orDie()
+        let weight = mru.getWeight(parent.orientation)
+        mru.unbindFromParent()
+        let container = TilingContainer(parent: parent, adaptiveWeight: weight, orientation, .tiles, index: index)
+        mru.bind(to: container, adaptiveWeight: WEIGHT_AUTO, index: 0)
+        return BindingData(parent: container, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+    }
+
+    @MainActor
+    private func floatingBindingData(windowId: UInt32) -> BindingData {
+        if !windowsFloatedByLayout.contains(windowId) {
+            windowsFloatedByLayout.append(windowId)
+        }
+        return BindingData(parent: floatingWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
     }
 }
 
