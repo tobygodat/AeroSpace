@@ -6,6 +6,8 @@
 // --demo      before the snapshot: records ⌥⇧G into the first binding, changes one command, and saves
 // --appearance light|dark
 // --select N  expands the Nth binding of the main mode
+// --pane NAME  opens a Settings pane instead of the bindings (e.g. workspaces)
+// --super-status on|failed  shows that Super key state (no event tap or key remap is started)
 // --edit N=command  with --demo: which binding's command to change (default 1=fullscreen)
 // --dump      prints the first bindings of the main mode
 // --redraw    forces a full layout and redraw before the snapshot
@@ -33,6 +35,11 @@ MainActor.assumeIsolated {
 
     let model = KeybindingEditorModel(configUrlProvider: { .success(URL(filePath: configPath)) }, afterSave: { print("afterSave called") })
     model.load()
+    switch argValue("--super-status") {
+        case "on": SuperKeyRuntime.shared.status = .on(model.superKey)
+        case "failed": SuperKeyRuntime.shared.status = .failed("AeroSpace lost Accessibility permission")
+        default: break
+    }
 
     // A utility panel so tiling window managers leave it floating
     let window = NSPanel(
@@ -41,7 +48,7 @@ MainActor.assumeIsolated {
         backing: .buffered,
         defer: false,
     )
-    window.title = "Keybindings"
+    window.title = "Settings"
     window.titlebarAppearsTransparent = true
     window.titleVisibility = .hidden
     switch appearance {
@@ -49,7 +56,7 @@ MainActor.assumeIsolated {
         case "dark": window.appearance = NSAppearance(named: .darkAqua)
         default: break
     }
-    window.contentView = NSHostingView(rootView: KeybindingEditorView(model: model))
+    window.contentView = NSHostingView(rootView: KeybindingEditorView(model: model, pane: argValue("--pane").flatMap(SettingsPane.init(rawValue:))))
     window.center()
     window.makeKeyAndOrderFront(nil)
     app.activate(ignoringOtherApps: true)

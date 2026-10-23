@@ -23,8 +23,12 @@ final class KeybindingEditorModel: ObservableObject {
     private var keyMapping: [String: Key] = KeyMapping().resolve()
     private var keyMonitor: Any? = nil
     private var didBackUp: Bool = false
+    private var isEditingConfig = false
+    private var waitingConfigEdits: [CheckedContinuation<Void, Never>] = []
     private let configUrlProvider: @MainActor () -> Result<URL, String>
     private let afterSave: @MainActor () async -> Void
+    /// `super-key` of the loaded config
+    private(set) var superKey: SuperKey = Config().superKey
 
     init(configUrlProvider: @escaping @MainActor () -> Result<URL, String>, afterSave: @escaping @MainActor () async -> Void) {
         self.configUrlProvider = configUrlProvider
@@ -73,7 +77,9 @@ final class KeybindingEditorModel: ObservableObject {
             case .success(let loaded):
                 loadError = nil
                 loadedText = text
-                keyMapping = parseConfig(text).config.keyMapping.resolve()
+                let parsed = parseConfig(text).config
+                keyMapping = parsed.keyMapping.resolve()
+                superKey = parsed.superKey
                 modes = loaded.isEmpty ? [EditableMode(name: mainModeId, bindings: [])] : loaded
                 savedModes = modes
                 if !modes.contains(where: { $0.name == selectedMode }) {
@@ -176,7 +182,8 @@ final class KeybindingEditorModel: ObservableObject {
 
     private func canonicalShortcut(_ key: String) -> String? {
         guard case .success(let (modifiers, key)) = parseBinding(key, .emptyRoot, keyMapping) else { return nil }
-        return modifiers.isEmpty ? key.toString() : modifiers.toString() + "-" + key.toString()
+        let pressed = modifiers.resolvingSuper(superKey)
+        return pressed.isEmpty ? key.toString() : pressed.toString() + "-" + key.toString()
     }
 
     // MARK: Recording
@@ -193,6 +200,7 @@ final class KeybindingEditorModel: ObservableObject {
         stopRecording()
         recordingBindingId = id
         setHotKeysPaused(true) // Otherwise AeroSpace itself would swallow shortcuts that are already bound
+        superChordRecorder = { [weak self] chord in self?.record(keyCode: chord.keyCode, modifiers: chord.modifiers.union(.superKey)) }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags
@@ -213,12 +221,21 @@ final class KeybindingEditorModel: ObservableObject {
         if recordingBindingId != nil {
             recordingBindingId = nil
             setHotKeysPaused(false)
+            superChordRecorder = nil
         }
     }
 
+    /// A key pressed in the window. Option or Command is recorded as Super while it's the Super key
     func record(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
+        var modifiers = HotkeyModifiers(eventFlags: modifierFlags)
+        if let standsFor = superKey.standsFor, modifiers.contains(standsFor) {
+            modifiers = modifiers.subtracting(standsFor).union(.superKey)
+        }
+        record(keyCode: keyCode, modifiers: modifiers)
+    }
+
+    private func record(keyCode: UInt16, modifiers: HotkeyModifiers) {
         guard let id = recordingBindingId else { return }
-        let modifiers = modifierFlags.intersection([.option, .control, .command, .shift])
         if keyCode == 53 && modifiers.isEmpty { // Plain esc cancels
             stopRecording()
             return
@@ -299,8 +316,54 @@ final class KeybindingEditorModel: ObservableObject {
         savedModes = modes
         loadedText = newText
         keyMapping = parsed.config.keyMapping.resolve()
+        superKey = parsed.config.superKey
         status = ("Saved to \(url.displayPath)", false)
         await afterSave()
+    }
+
+    // MARK: Edits from Settings panes
+
+    /// Applies `change` to the config file as it is on disk now, writes the result, and reloads the config.
+    /// Edits run one at a time in call order. Refused while bindings have unsaved edits, which the write would strand
+    func editConfig(_ change: @MainActor (String) -> Result<String, String>) async -> Result<String, String> {
+        if isEditingConfig {
+            await withCheckedContinuation { waitingConfigEdits.append($0) }
+        }
+        isEditingConfig = true
+        defer {
+            if waitingConfigEdits.isEmpty {
+                isEditingConfig = false
+            } else {
+                waitingConfigEdits.removeFirst().resume()
+            }
+        }
+        if isDirty { return .failure("Save or revert your keybinding changes first") }
+        if configFileUrl == nil { load() }
+        guard let url = configFileUrl else { return .failure(loadError ?? "Can't find the config file") }
+        let resolvedUrl = url.resolvingSymlinksInPath()
+        guard let text = try? String(contentsOf: resolvedUrl, encoding: .utf8) else { return .failure("Can't read \(url.displayPath)") }
+        let newText: String
+        switch change(text) {
+            case .failure(let msg): return .failure(msg)
+            case .success(let it): newText = it
+        }
+        if newText == text { return .success(text) }
+        let errors = parseConfig(newText).errors
+        if !errors.isEmpty { return .failure(errors.map { $0.description(.error) }.joined(separator: "\n")) }
+        do {
+            if !didBackUp {
+                let backupUrl = resolvedUrl.appendingPathExtension("bak-keybindings")
+                try? FileManager.default.removeItem(at: backupUrl)
+                try FileManager.default.copyItem(at: resolvedUrl, to: backupUrl)
+                didBackUp = true
+            }
+            try newText.write(to: resolvedUrl, atomically: true, encoding: .utf8)
+        } catch {
+            return .failure("Couldn't save: \(error.localizedDescription)")
+        }
+        load()
+        await afterSave()
+        return .success(newText)
     }
 }
 
@@ -309,7 +372,7 @@ extension URL {
     var displayPath: String { (path as NSString).abbreviatingWithTildeInPath }
 }
 
-/// Human-readable shortcut, e.g. "alt-shift-1" → "⌥⇧1"
+/// Human-readable shortcut, e.g. "alt-shift-1" → "⌥⇧1", "super-b" → "◆B"
 func prettyShortcut(_ notation: String) -> String { shortcutSymbols(notation).joined() }
 
 /// One symbol per key, modifiers first in macOS order, e.g. "alt-shift-1" → ["⌥", "⇧", "1"]
@@ -318,7 +381,7 @@ func shortcutSymbols(_ notation: String) -> [String] {
     let parts = notation.split(separator: "-").map(String.init)
     guard let key = parts.last else { return [notation] }
     let modifiers = Set(parts.dropLast())
-    let symbols = [("ctrl", "⌃"), ("alt", "⌥"), ("shift", "⇧"), ("cmd", "⌘")]
+    let symbols = [("super", "◆"), ("ctrl", "⌃"), ("alt", "⌥"), ("shift", "⇧"), ("cmd", "⌘")]
         .filter { modifiers.contains($0.0) }
         .map(\.1)
     let keySymbols: [String: String] = [

@@ -56,6 +56,7 @@ struct ReloadConfigResult {
         await activateMode_nonCancellable(activeMode)
         syncStartAtLogin()
         syncFocusFollowsMouse(config)
+        SuperKeyRuntime.shared.sync(config)
         syncConfigFileWatcher()
     }
 

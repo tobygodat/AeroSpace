@@ -245,21 +245,60 @@ private let colemakMap: [String: Key] = keyNotationToKeyCode + [
     slash: .slash,
 ]
 
-let modifiersMap: [String: NSEvent.ModifierFlags] = [
+let modifiersMap: [String: HotkeyModifiers] = [
     "shift": .shift,
     "alt": .option,
     "ctrl": .control,
     "cmd": .command,
+    "super": .superKey,
 ]
 
-extension NSEvent.ModifierFlags {
+/// The modifiers of a binding. Super is a modifier of its own: the config's `super-key` says which physical key it is
+struct HotkeyModifiers: OptionSet, Hashable, Sendable {
+    let rawValue: UInt8
+
+    init(rawValue: UInt8) { self.rawValue = rawValue }
+
+    static let shift = HotkeyModifiers(rawValue: 1 << 0)
+    static let control = HotkeyModifiers(rawValue: 1 << 1)
+    static let option = HotkeyModifiers(rawValue: 1 << 2)
+    static let command = HotkeyModifiers(rawValue: 1 << 3)
+    static let superKey = HotkeyModifiers(rawValue: 1 << 4)
+
+    init(eventFlags flags: NSEvent.ModifierFlags) {
+        self = []
+        if flags.contains(.shift) { insert(.shift) }
+        if flags.contains(.control) { insert(.control) }
+        if flags.contains(.option) { insert(.option) }
+        if flags.contains(.command) { insert(.command) }
+    }
+
     func toString() -> String {
         var result: [String] = []
+        if contains(.superKey) { result.append("super") }
         if contains(.option) { result.append("alt") }
         if contains(.control) { result.append("ctrl") }
         if contains(.command) { result.append("cmd") }
         if contains(.shift) { result.append("shift") }
         return result.joined(separator: "-")
+    }
+
+    /// Super replaced by the modifier it stands for when `super-key` is Option or Command
+    func resolvingSuper(_ superKey: SuperKey) -> HotkeyModifiers {
+        guard contains(.superKey), let standsFor = superKey.standsFor else { return self }
+        return subtracting(.superKey).union(standsFor)
+    }
+
+    /// The modifiers to register with Carbon. nil while Super is Caps Lock or Right Command: the Super key tap handles those
+    func carbonFlags(_ superKey: SuperKey) -> NSEvent.ModifierFlags? {
+        let resolved = resolvingSuper(superKey)
+        if resolved.contains(.superKey) { return nil }
+        var flags: NSEvent.ModifierFlags = []
+        if resolved.contains(.shift) { flags.insert(.shift) }
+        if resolved.contains(.control) { flags.insert(.control) }
+        if resolved.contains(.option) { flags.insert(.option) }
+        if resolved.contains(.command) { flags.insert(.command) }
+        return flags
     }
 }
 
