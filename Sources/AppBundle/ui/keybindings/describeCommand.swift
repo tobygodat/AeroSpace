@@ -1,3 +1,4 @@
+import Common
 import Foundation
 
 /// Groups shown in the keybinding editor, in display order
@@ -57,6 +58,10 @@ private func describeCommand(_ raw: String) -> (title: String, category: Keybind
             if targets.contains("accordion") { return ("Toggle tiles / accordion", .windows) }
             if targets.contains("horizontal") || targets.contains("vertical") { return ("Toggle split direction", .windows) }
             return ("Change layout", .windows)
+        case "workspace-layout":
+            if last == "next" { return ("Cycle workspace layout", .windows) }
+            let titles = args.compactMap { WorkspaceLayout(rawValue: $0)?.title }
+            return ("Workspace layout: \(titles.isEmpty ? last : titles.joined(separator: " / "))", .windows)
         case "move-node-to-monitor": return ("Move window to \(last) monitor", .monitors)
         case "move-workspace-to-monitor": return ("Move workspace to \(last) monitor", .monitors)
         case "focus-monitor": return ("Focus \(last) monitor", .monitors)
