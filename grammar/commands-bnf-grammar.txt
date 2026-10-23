@@ -38,6 +38,8 @@ aerospace -h;
     | focus --dfs-index <number>
     | focus [<focus_dfs_relative_flag>]... (dfs-next|dfs-prev) [<focus_dfs_relative_flag>]...
 
+    | focus-app (<app_bundle_id>|<app_name>|--default-browser|--default-terminal)
+
     | focus-back-and-forth
 
     | focus-monitor [--wrap-around] (left|down|up|right) [--wrap-around]
