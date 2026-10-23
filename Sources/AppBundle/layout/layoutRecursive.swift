@@ -20,11 +20,65 @@ extension Workspace {
     /// Scrolling layout. The root's children are columns on a strip that can be wider than `rect`; `scrollOffset`
     /// is moved just enough to keep the focused column in view. Columns in view are laid out at real coordinates
     /// with `layoutRecursive` (so fullscreen, gaps and columns' own tiles/accordion all behave); columns out of
-    /// view are parked at the monitor's edge with one point visible, since macOS pulls a window back on screen
+    /// view are parked at the edge of `rect` with one point visible, since macOS pulls a window back on screen
     /// only when nothing of it is visible. Floating windows are laid out as usual
     @MainActor
     fileprivate func layoutScrolling(_ rect: Rect, _ context: LayoutContext) async throws {
-        die("TODO(AERO-4 scrolling): layoutScrolling")
+        lastAppliedLayoutPhysicalRect = rect
+        lastAppliedLayoutVirtualRect = rect
+        let root = rootTilingContainer
+        // A lone column is a direct child of the root, so `layout accordion` or `layout vertical` on it lands on
+        // the root. The strip stays horizontal tiles, or column weights would stop meaning widths
+        root.layout = .tiles
+        root.setOrientationOnly(.h)
+        root.lastAppliedLayoutPhysicalRect = rect
+        root.lastAppliedLayoutVirtualRect = rect
+
+        let gap = context.resolvedGaps.inner.horizontal.toDouble()
+        var widths: [CGFloat] = []
+        var starts: [CGFloat] = []
+        var total: CGFloat = 0
+        for column in root.children {
+            let weight = column.getWeight(.h)
+            // WEIGHT_AUTO into an empty root and a flattened container both leave a weight of 1
+            let width = min(weight < rect.width / 10 ? defaultScrollingColumnWidth : weight, rect.width)
+            column.setWeight(.h, width)
+            let start = starts.isEmpty ? 0 : total + gap
+            starts.append(start)
+            widths.append(width)
+            total = start + width
+        }
+
+        if let focused = root.mostRecentChild?.ownIndex {
+            var offset = scrollOffset
+            if starts[focused] < offset { offset = starts[focused] }
+            if starts[focused] + widths[focused] > offset + rect.width { offset = starts[focused] + widths[focused] - rect.width }
+            scrollOffset = offset.coerce(in: 0 ... max(0, total - rect.width))
+        }
+
+        func park(_ node: TreeNode, at frame: Rect, virtual: Rect) {
+            if let window = node as? Window {
+                if window.windowId == currentlyManipulatedWithMouseWindowId { return }
+                window.isFullscreen = false
+                window.setAxFrame(frame.topLeftCorner, frame.size)
+            }
+            node.lastAppliedLayoutPhysicalRect = frame
+            node.lastAppliedLayoutVirtualRect = virtual
+            for child in node.children {
+                park(child, at: frame, virtual: virtual)
+            }
+        }
+        for (i, column) in root.children.enumerated() {
+            let (x, width) = (rect.minX + starts[i] - scrollOffset, widths[i])
+            let virtual = Rect(topLeftX: x, topLeftY: rect.minY, width: width, height: rect.height)
+            if x < rect.maxX && x + width > rect.minX {
+                try await column.layoutRecursive(CGPoint(x: x, y: rect.minY), width: width, height: rect.height - 1, virtual: virtual, context)
+            } else {
+                let parkedX = x < rect.minX ? rect.minX - width + 1 : rect.maxX - 1
+                park(column, at: Rect(topLeftX: parkedX, topLeftY: rect.minY, width: width, height: rect.height - 1), virtual: virtual)
+            }
+        }
+        try await floatingWindowsContainer.layoutRecursive(rect.topLeftCorner, width: rect.width, height: rect.height - 1, virtual: rect, context)
     }
 }
 
