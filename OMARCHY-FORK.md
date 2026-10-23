@@ -50,6 +50,56 @@ Original design notes:
 | Conflict warnings | Flag duplicates, and Option+arrow / Option+letter clashes with text editing |
 | Presets | "Omarchy (Option)", "Omarchy (Cmd)", "Omarchy (Hyper)", "AeroSpace default" |
 
+## App hotkeys: focus or launch. Built; not yet tried inside the running WM
+
+`focus-app` jumps to an app wherever it is: it switches to the workspace of the app's most recently used window (across
+all instances of the app) and focuses it; a hidden app is unhidden there. Pressing it again while macOS has the app in
+front cycles through the app's windows across workspaces (one window: nothing happens). "In front" is macOS's frontmost
+app, not AeroSpace's remembered focus, which stays put while an unmanaged window (like this settings window) is in front;
+when the two disagree, the command brings the window forward itself. An app with all windows minimized gets the
+Dock-click "reopen"; an app that isn't running is launched. Recency comes from `Window.lastNativeFocus`, bumped in
+`focusCache.swift` whenever macOS focus moves to another window.
+
+```toml
+alt-b = 'focus-app --default-browser'        # the system's default browser, looked up on every press
+alt-enter = 'focus-app --default-terminal'   # first installed of Tern, Ghostty, kitty, Alacritty, WezTerm, iTerm2, Warp, Terminal
+alt-shift-m = 'focus-app com.apple.Music'    # a bundle id, or an app name
+```
+
+Settings → **Apps** in the keybinding editor window lists app shortcuts: app (installed apps with icons, or Default
+browser / Default terminal), recorded shortcut, and an optional **home workspace**. A home workspace is a plain
+`[[on-window-detected]]` rule (`if.app-id`, optional `check-further-callbacks = true`, `run = 'move-node-to-workspace N'`),
+so new windows of the app open there; other rules are never shown or touched. New home rules go before all other rules
+with `check-further-callbacks = true`: AeroSpace stops at the first matching rule, so appending could leave the home
+unreachable behind an existing rule for the app. The home belongs to the app, not the row: two shortcuts to Chrome show
+one home, and pointing a shortcut at another app leaves Chrome's home in place. Configs that write `on-window-detected`
+as an inline array show homes read-only. "Suggested" offers Omarchy's launch-or-focus apps for the configured Super key
+(the modifiers of the binding that runs `workspace 1`; no such binding, no suggestions); when those keys already open an
+app, the suggestion focuses that app instead. While Option is Super, a row notes the character the shortcut takes away
+(⌥B types ∫). Both panes share one Save. In either pane, Esc while recording a just-added shortcut takes it back.
+
+| File | What |
+|---|---|
+| `Sources/Common/cmdArgs/impl/FocusAppCmdArgs.swift` | `focus-app` arguments (`<app>`, `--default-browser`, `--default-terminal`) |
+| `Sources/AppBundle/command/impl/FocusAppCommand.swift` | Finds the app's windows, `focusAppAction` decides focus / cycle / open, app lookup |
+| `Sources/AppBundle/config/homeWorkspaceRules.swift` | Read/rewrite home-workspace rules; minimal-diff TOML edits, verified by re-parsing |
+| `Sources/AppBundle/ui/settings/appShortcuts.swift` | Apps pane rows derived from the editor model, suggestions, Super key, Option-character note, installed apps |
+| `Sources/AppBundle/ui/settings/AppShortcutsPane.swift` | The pane and the app picker |
+| `docs/aerospace-focus-app.adoc` | Command docs |
+
+The Omarchy presets now use `focus-app` for Super+B and Super+Return (Super+Shift+B and Super+Shift+Return open a new
+window), plus Super+Shift+M for Spotify or Music and, when installed, Signal (⇧G), Obsidian (⇧O) and 1Password (⇧/).
+
+```sh
+cp ~/.aerospace.toml /tmp/scratch.toml
+swift run KeybindingEditorPreview --config /tmp/scratch.toml --pane apps
+```
+
+With Command Line Tools 27, build and test against the 26.5 SDK (the 27 SDK's SwiftUI macros have no CLT plugin):
+`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk`, and add
+`-Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing` to
+`./test-keybinding-editor.sh`.
+
 ## Phase 2: Launcher (replaces Raycast for apps)
 
 - New command `launcher`, bound to Super+Space by default.

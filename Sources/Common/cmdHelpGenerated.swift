@@ -39,6 +39,11 @@ let false_help_generated = """
 let flatten_workspace_tree_help_generated = """
     USAGE: flatten-workspace-tree [-h|--help] [--workspace <workspace>]
     """
+let focus_app_help_generated = """
+    USAGE: focus-app [-h|--help] <app-bundle-id>|<app-name>
+       OR: focus-app [-h|--help] --default-browser
+       OR: focus-app [-h|--help] --default-terminal
+    """
 let focus_back_and_forth_help_generated = """
     USAGE: focus-back-and-forth [-h|--help]
     """

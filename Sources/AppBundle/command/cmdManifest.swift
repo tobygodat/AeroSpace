@@ -30,6 +30,8 @@ extension CmdArgs {
                 command = FlattenWorkspaceTreeCommand(args: self as! FlattenWorkspaceTreeCmdArgs)
             case .focus:
                 command = FocusCommand(args: self as! FocusCmdArgs)
+            case .focusApp:
+                command = FocusAppCommand(args: self as! FocusAppCmdArgs)
             case .focusBackAndForth:
                 command = FocusBackAndForthCommand(args: self as! FocusBackAndForthCmdArgs)
             case .focusMonitor:

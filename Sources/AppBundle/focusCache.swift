@@ -1,4 +1,5 @@
 @MainActor private var lastKnownNativeFocusedWindowId: UInt32? = nil
+@MainActor private var nativeFocusChangeCount = 0
 
 /// The data should flow (from nativeFocused to focused) and
 ///                      (from nativeFocused to lastKnownNativeFocusedWindowId)
@@ -10,6 +11,8 @@
     if nativeFocused?.windowId != lastKnownNativeFocusedWindowId {
         _ = nativeFocused?.focusWindow()
         lastKnownNativeFocusedWindowId = nativeFocused?.windowId
+        nativeFocusChangeCount += 1
+        nativeFocused?.lastNativeFocus = nativeFocusChangeCount
     }
     nativeFocused?.macAppUnsafe.lastNativeFocusedWindowId = nativeFocused?.windowId
 }
