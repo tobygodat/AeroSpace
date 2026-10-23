@@ -64,7 +64,23 @@ extension TreeNode {
     /// rebuilds between layout passes
     @MainActor
     var estimatedVirtualRect: Rect {
-        die("TODO(AERO-4 engine): estimatedVirtualRect")
+        if let workspace = self as? Workspace {
+            return workspace.workspaceMonitor.visibleRectPaddedByOuterGaps
+        }
+        guard let parent else { die("\(self) is unbound, it has no rect") }
+        let rect = parent.estimatedVirtualRect
+        guard case .tilingContainer(let container) = parent.cases, container.layout == .tiles else { return rect }
+        // layoutTiles doesn't split proportionally: it adds (available - sum of weights) / count to every child
+        let orientation = container.orientation
+        let weights = container.children.map { $0.getWeight(orientation) }
+        let delta = (rect.getDimension(orientation) - weights.sumOfDouble { $0 }) / CGFloat(weights.count)
+        let index = ownIndex.orDie()
+        let offset = weights[..<index].sumOfDouble { $0 } + delta * CGFloat(index)
+        let size = weights[index] + delta
+        return switch orientation {
+            case .h: Rect(topLeftX: rect.topLeftX + offset, topLeftY: rect.topLeftY, width: size, height: rect.height)
+            case .v: Rect(topLeftX: rect.topLeftX, topLeftY: rect.topLeftY + offset, width: rect.width, height: size)
+        }
     }
 }
 
