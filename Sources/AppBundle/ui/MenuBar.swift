@@ -58,6 +58,7 @@ public func menuBar(viewModel: TrayMenuModel) -> some Scene { // todo should it 
                 }
             }.keyboardShortcut("E", modifiers: .command)
             getExperimentalUISettingsMenu(viewModel: viewModel)
+            OpenKeybindingEditorButton()
             openConfigButton()
             reloadConfigButton(warningsAsErrors: false)
         } else {

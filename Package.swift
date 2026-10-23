@@ -8,6 +8,17 @@ let swiftSettings: [SwiftSetting] = [
     .strictMemorySafety(),
 ]
 
+// The XCTest suite needs Xcode. Set AEROSPACE_SKIP_XCTEST=1 to build and run the remaining tests with the Command Line Tools only
+let xcTestTargets: [Target] = Context.environment["AEROSPACE_SKIP_XCTEST"] == "1" ? [] : [
+    .testTarget(
+        name: "AppBundleTests",
+        dependencies: [
+            .target(name: "AppBundle"),
+        ],
+        swiftSettings: swiftSettings,
+    ),
+]
+
 let package = Package(
     name: "AeroSpacePackage",
     // Runtime support for parameterized protocol types is only available in macOS 13.0.0 or newer
@@ -69,12 +80,20 @@ let package = Package(
             ],
             swiftSettings: swiftSettings,
         ),
-        .testTarget(
-            name: "AppBundleTests",
+        // Dev-only: opens the keybinding editor on a scratch config without starting the window manager
+        .executableTarget(
+            name: "KeybindingEditorPreview",
             dependencies: [
                 .target(name: "AppBundle"),
             ],
             swiftSettings: swiftSettings,
         ),
-    ],
+        .testTarget(
+            name: "KeybindingEditorTests",
+            dependencies: [
+                .target(name: "AppBundle"),
+            ],
+            swiftSettings: swiftSettings,
+        ),
+    ] + xcTestTargets,
 )

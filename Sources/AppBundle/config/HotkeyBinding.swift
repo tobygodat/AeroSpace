@@ -14,6 +14,14 @@ import HotKey
     hotkeys = [:]
 }
 
+/// Temporarily lets all keystrokes through to the focused app, e.g. while the keybinding editor records a shortcut
+@MainActor func setHotKeysPaused(_ paused: Bool) {
+    let activeBindings = activeMode.flatMap { config.modes[$0] }?.bindings ?? [:]
+    for (binding, key) in hotkeys {
+        key.isEnabled = !paused && activeBindings.keys.contains(binding)
+    }
+}
+
 extension HotKey {
     var isEnabled: Bool {
         get { !isPaused }
