@@ -4,7 +4,7 @@ let kVKF18: UInt16 = 0x4F
 let kVKRightCommand: UInt16 = 0x36
 let kVKEscape: UInt16 = 0x35
 private let leftCmdDeviceMask: UInt64 = 0x08 // NX_DEVICELCMDKEYMASK
-private let rightCmdDeviceMask: UInt64 = 0x10 // NX_DEVICERCMDKEYMASK
+let rightCmdDeviceMask: UInt64 = 0x10 // NX_DEVICERCMDKEYMASK
 
 /// Super and a key. `modifiers` are the other modifiers held with it, without Super
 struct SuperChord: Equatable, Sendable {
@@ -84,6 +84,13 @@ struct SuperKeyOwnership: Equatable, Sendable {
                 return .pass
         }
     }
+
+    /// Forgets the Super keys that aren't down anymore although their release never came: Secure Input (a password
+    /// field) hides it from the tap. Otherwise every key typed later would be a Super chord
+    mutating func forgetReleased(stillDown: Set<SuperSource>) {
+        if let owner, !stillDown.contains(owner.source) { self.owner = nil }
+        inert.formIntersection(stillDown)
+    }
 }
 
 /// What a tapped event means for Super, given the keys that are Super. nil: the event doesn't concern Super
@@ -100,7 +107,8 @@ func superKeyInput(type: CGEventType, keyCode: UInt16, flags: CGEventFlags, isRe
                 return flags.rawValue & rightCmdDeviceMask != 0 ? .superDown(.rightCmd, isRepeat: false) : .superUp(.rightCmd)
             }
             return .otherInput
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp, .rightMouseUp, .otherMouseUp,
+             .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel:
             return .otherInput
         default:
             return nil

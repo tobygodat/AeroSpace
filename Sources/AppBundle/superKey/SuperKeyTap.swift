@@ -22,7 +22,10 @@ final class SuperKeyTap: @unchecked Sendable {
 
     /// false when macOS refuses the tap, which means AeroSpace lacks Accessibility (or Input Monitoring) permission
     func start() -> Bool {
-        let types: [CGEventType] = [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        var types: [CGEventType] = [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        if sources.contains(.rightCmd) { // Right Command stays down while it's Super, so these would carry Command to apps
+            types += [.leftMouseUp, .rightMouseUp, .otherMouseUp, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel]
+        }
         let mask = types.reduce(CGEventMask(0)) { $0 | CGEventMask(1) << $1.rawValue }
         guard let port = unsafe CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -79,6 +82,12 @@ final class SuperKeyTap: @unchecked Sendable {
             isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
             sources: sources,
         ) else { return unsafe Unmanaged.passUnretained(event) }
+        if case .keyDown = input, !ownership.heldSources.isEmpty {
+            var down: Set<SuperSource> = []
+            if CGEventSource.keyState(.hidSystemState, key: kVKF18) { down.insert(.capsLock) }
+            if event.flags.rawValue & rightCmdDeviceMask != 0 { down.insert(.rightCmd) }
+            ownership.forgetReleased(stillDown: down)
+        }
         switch ownership.handle(input, at: DispatchTime.now().uptimeNanoseconds) {
             case .pass:
                 event.flags = flagsWithoutSuper(event.flags, held: ownership.heldSources)

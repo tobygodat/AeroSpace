@@ -220,6 +220,28 @@ private let allOrders: [SuperKeyOrder] = [
         #expect(drive(.keyUp(keyCode: keyL)) == .pass)
     }
 
+    /// Secure Input hid Caps Lock's release from the tap: the next key press finds it up and goes to the app
+    @Test func releaseHiddenFromTheTapIsForgotten() {
+        var drive = Driver()
+        _ = drive(down(.capsLock))
+        _ = drive.press(keyB)
+        _ = drive(.keyUp(keyCode: keyB))
+        drive.machine.forgetReleased(stillDown: [])
+        #expect(drive.machine.heldSources.isEmpty)
+        #expect(drive.press(keyL) == .pass)
+    }
+
+    @Test func forgettingKeepsTheKeysThatAreStillDown() {
+        var drive = Driver()
+        _ = drive(down(.capsLock))
+        _ = drive(down(.rightCmd))
+        drive.machine.forgetReleased(stillDown: [.capsLock])
+        #expect(drive.machine.heldSources == [.capsLock])
+        #expect(drive.press(keyL) == .chord(SuperChord(keyCode: keyL, modifiers: [])))
+        drive.machine.forgetReleased(stillDown: [.capsLock, .rightCmd])
+        #expect(drive.machine.heldSources == [.capsLock], "a key pressed while the tap didn't see it doesn't become Super")
+    }
+
     @Test func otherModifiersRideAlong() {
         var drive = Driver()
         _ = drive(down(b))
@@ -267,6 +289,9 @@ private let allOrders: [SuperKeyOrder] = [
     @Test func mouseDownsBreakAloneAndOtherEventsAreIgnored() {
         #expect(superKeyInput(type: .leftMouseDown, keyCode: 0, flags: [], isRepeat: false, sources: [.capsLock]) == .otherInput)
         #expect(superKeyInput(type: .otherMouseDown, keyCode: 0, flags: [], isRepeat: false, sources: [.capsLock]) == .otherInput)
+        for type: CGEventType in [.leftMouseUp, .leftMouseDragged, .scrollWheel] { // Tapped only while Right Command is Super
+            #expect(superKeyInput(type: type, keyCode: 0, flags: [], isRepeat: false, sources: [.rightCmd]) == .otherInput)
+        }
         #expect(superKeyInput(type: .mouseMoved, keyCode: 0, flags: [], isRepeat: false, sources: [.capsLock]) == nil)
     }
 
