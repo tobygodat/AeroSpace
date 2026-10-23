@@ -11,8 +11,7 @@ struct KeybindingPreset: Identifiable {
 
 @MainActor func keybindingPresets() -> [KeybindingPreset] {
     [
-        KeybindingPreset(name: "Omarchy · ⌥ as Super", bindings: omarchyBindings(superKey: "alt")),
-        KeybindingPreset(name: "Omarchy · ⌘ as Super", bindings: omarchyBindings(superKey: "cmd")),
+        KeybindingPreset(name: "Omarchy", bindings: omarchyBindings(superKey: "super")),
     ]
 }
 

@@ -5,6 +5,7 @@ import SwiftUI
 enum SettingsPane: String, CaseIterable, Identifiable {
     case workspaces
     case apps
+    case superKey = "super-key"
 
     var id: String { rawValue }
 
@@ -12,6 +13,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
             case .workspaces: "Workspaces"
             case .apps: "Apps"
+            case .superKey: "Super key"
         }
     }
 
@@ -20,6 +22,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
             case .workspaces: "menubar.rectangle"
             case .apps: "square.grid.2x2"
+            case .superKey: "capslock"
         }
     }
 
@@ -28,6 +31,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
             case .workspaces: WorkspacesPane(editor: editor)
             case .apps: AppShortcutsPane(editor: editor)
+            case .superKey: SuperKeyPane(editor: editor)
         }
     }
 }

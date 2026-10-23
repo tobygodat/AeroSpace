@@ -11,6 +11,7 @@
 // --edit N=command  with --demo: which binding's command to change (default 1=fullscreen)
 // --dump      prints the first bindings of the main mode
 // --redraw    forces a full layout and redraw before the snapshot
+// --super-status on|failed  shows that Super key state (no event tap or key remap is started)
 @testable import AppBundle
 import AppKit
 import SwiftUI
@@ -35,6 +36,11 @@ MainActor.assumeIsolated {
 
     let model = KeybindingEditorModel(configUrlProvider: { .success(URL(filePath: configPath)) }, afterSave: { print("afterSave called") })
     model.load()
+    switch argValue("--super-status") {
+        case "on": SuperKeyRuntime.shared.status = .on(model.superKeySetting)
+        case "failed": SuperKeyRuntime.shared.status = .failed("AeroSpace lost Accessibility permission")
+        default: break
+    }
 
     // A utility panel so tiling window managers leave it floating
     let window = NSPanel(

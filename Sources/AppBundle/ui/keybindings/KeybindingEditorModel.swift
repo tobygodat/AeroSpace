@@ -83,7 +83,9 @@ final class KeybindingEditorModel: ObservableObject {
             case .success(let loaded):
                 loadError = nil
                 loadedText = text
-                keyMapping = parseConfig(text).config.keyMapping.resolve()
+                let parsed = parseConfig(text).config
+                keyMapping = parsed.keyMapping.resolve()
+                superKeySetting = parsed.superKey
                 modes = loaded.isEmpty ? [EditableMode(name: mainModeId, bindings: [])] : loaded
                 savedModes = modes
                 let rules = readHomeWorkspaceRules(text)
@@ -191,10 +193,14 @@ final class KeybindingEditorModel: ObservableObject {
 
     func canonicalShortcut(_ key: String) -> String? {
         guard case .success(let (modifiers, key)) = parseBinding(key, .emptyRoot, keyMapping) else { return nil }
-        return modifiers.isEmpty ? key.toString() : modifiers.toString() + "-" + key.toString()
+        let pressed = modifiers.resolvingSuper(superKeySetting)
+        return pressed.isEmpty ? key.toString() : pressed.toString() + "-" + key.toString()
     }
 
     // MARK: Recording
+
+    /// `super-key` of the loaded config. Shortcuts are compared and recorded as the keys it stands for
+    private(set) var superKeySetting: SuperKey = Config().superKey
 
     func toggleRecording(_ id: UUID) {
         if recordingBindingId == id {
@@ -208,6 +214,8 @@ final class KeybindingEditorModel: ObservableObject {
         stopRecording()
         recordingBindingId = id
         setHotKeysPaused(true) // Otherwise AeroSpace itself would swallow shortcuts that are already bound
+        superChordRecorder = { [weak self] chord in self?.record(keyCode: chord.keyCode, modifiers: chord.modifiers.union(.superKey)) }
+        SuperKeyRuntime.shared.setRecording(true) // So Super can be recorded before any binding uses it
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags
@@ -228,12 +236,22 @@ final class KeybindingEditorModel: ObservableObject {
         if recordingBindingId != nil {
             recordingBindingId = nil
             setHotKeysPaused(false)
+            superChordRecorder = nil
+            SuperKeyRuntime.shared.setRecording(false)
         }
     }
 
+    /// A key pressed in the window. Option or Command is recorded as Super while it's the Super key
     func record(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
+        var modifiers = HotkeyModifiers(eventFlags: modifierFlags)
+        if let standsFor = superKeySetting.standsFor, modifiers.contains(standsFor) {
+            modifiers = modifiers.subtracting(standsFor).union(.superKey)
+        }
+        record(keyCode: keyCode, modifiers: modifiers)
+    }
+
+    private func record(keyCode: UInt16, modifiers: HotkeyModifiers) {
         guard let id = recordingBindingId else { return }
-        let modifiers = modifierFlags.intersection([.option, .control, .command, .shift])
         if keyCode == 53 && modifiers.isEmpty { // Plain esc cancels, and takes back a binding that was just added
             stopRecording()
             if modes.contains(where: { $0.bindings.contains { $0.id == id && $0.originalKey == nil && $0.key.isEmpty } }) {
@@ -323,6 +341,7 @@ final class KeybindingEditorModel: ObservableObject {
         savedHomeRules = homeRules
         loadedText = newText
         keyMapping = parsed.config.keyMapping.resolve()
+        superKeySetting = parsed.config.superKey
         status = ("Saved to \(url.displayPath)", false)
         await afterSave()
     }
@@ -378,7 +397,7 @@ extension URL {
     var displayPath: String { (path as NSString).abbreviatingWithTildeInPath }
 }
 
-/// Human-readable shortcut, e.g. "alt-shift-1" → "⌥⇧1"
+/// Human-readable shortcut, e.g. "alt-shift-1" → "⌥⇧1", "super-b" → "◆B"
 func prettyShortcut(_ notation: String) -> String { shortcutSymbols(notation).joined() }
 
 /// One symbol per key, modifiers first in macOS order, e.g. "alt-shift-1" → ["⌥", "⇧", "1"]
@@ -387,7 +406,7 @@ func shortcutSymbols(_ notation: String) -> [String] {
     let parts = notation.split(separator: "-").map(String.init)
     guard let key = parts.last else { return [notation] }
     let modifiers = Set(parts.dropLast())
-    let symbols = [("ctrl", "⌃"), ("alt", "⌥"), ("shift", "⇧"), ("cmd", "⌘")]
+    let symbols = [("super", "◆"), ("ctrl", "⌃"), ("alt", "⌥"), ("shift", "⇧"), ("cmd", "⌘")]
         .filter { modifiers.contains($0.0) }
         .map(\.1)
     let keySymbols: [String: String] = [

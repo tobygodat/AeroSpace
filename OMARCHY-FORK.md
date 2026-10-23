@@ -158,6 +158,58 @@ With Command Line Tools 27, build and test against the 26.5 SDK (the 27 SDK's Sw
 - "Keybindings" cheat-sheet overlay (Omarchy's Super+K).
 - Super+Space menu (Omarchy menu) for theme, gaps toggle, reload, and service-mode actions.
 
+## Super key: Caps Lock, Right Command, or both. Built; not yet tried inside the running WM
+
+Bindings can use `super` as a modifier (`super-b`, `super-shift-1`, `super-ctrl-tab`). `super-key` in the config says
+which physical key Super is:
+
+| `super-key` | Super is | Handled by |
+|---|---|---|
+| `'caps-lock'` (default) | Caps Lock held. Tapped alone (released within 0.5 s, nothing else pressed) it's Escape | hidutil remaps Caps Lock to F18; an event tap turns F18 into Super |
+| `'right-cmd'` | Right Command held. Left Command stays Command | the event tap |
+| `'caps-lock-or-right-cmd'` | Either one. The first pressed owns Super until it's released; the other does nothing meanwhile (no stacking, no Command, no Caps Lock) | both |
+| `'alt'`, `'cmd'` | That modifier | Carbon hotkeys, like any `alt-*` binding |
+
+Super is a modifier of its own, never ctrl+alt+cmd, so `super-shift-x`, `super-ctrl-x` and `ctrl-alt-cmd-x` are three
+different shortcuts. While Super is held, every key press is a Super chord: it runs its binding or does nothing, and the
+app never sees it. Nothing starts until some binding uses `super`, so a config with only `alt-*` bindings works as
+before and Caps Lock stays Caps Lock. While Super is Option or Command, `super-b` is `alt-b` (or `cmd-b`): one binding,
+and writing both in one mode is an error. `enable off` turns Super off too, and gives Caps Lock back.
+
+Settings → **Super key** picks the key, shows whether Super is on, and has **Convert to ◆ Super**: every `alt-` in a
+binding key becomes `super-` (only the key text changes; commands and comments stay), with Undo. The Omarchy preset
+now writes `super-*` bindings. Shortcuts show Super as ◆. The recorder records it: Super runs while recording, even
+before any binding uses it, and when Super is Option or Command, that modifier is recorded as Super.
+
+Safety:
+- The tap runs on its own thread, so a busy main thread never holds up typing.
+- The remap is per keyboard: each keeps its own Modifier Keys remaps (a PC keyboard with ⌥ and ⌘ swapped stays
+  swapped). Before it, each keyboard's Caps Lock mapping is saved to
+  `~/Library/Application Support/AeroSpace/caps-lock-remap.json`. It's put back on quit (also on SIGTERM), when the
+  setting changes, and at the next launch after a crash, before AeroSpace waits for Accessibility. A keyboard plugged
+  in later gets the remap within 10 seconds. If Caps Lock is on when the remap starts, it's turned off first.
+- If macOS disables the tap and it can't be turned back on, or Accessibility is revoked, Caps Lock is restored and the
+  menu shows "Super key is off" with Try again. If hidutil can't restore it, a working tap stays on so Caps Lock is
+  still Super, the menu shows "Caps Lock is stuck", and AeroSpace retries every 2 seconds.
+- Undo by hand: restart the Mac, or `hidutil property --set '{"UserKeyMapping":[]}'` (which also clears other remaps
+  until the next login).
+- Permissions: Accessibility, which AeroSpace already needs. Some macOS versions also ask for Input Monitoring.
+- In password fields (Secure Input) macOS hides keys from event taps, so Super doesn't work there and Caps Lock types
+  nothing. If Super is released while a password field has focus, the next key press notices and goes to the app.
+
+| File | What |
+|---|---|
+| `Sources/AppBundle/config/keysMap.swift` | `HotkeyModifiers`: the binding modifiers, Super included |
+| `Sources/AppBundle/config/superKey.swift` | `SuperKey` (`super-key`) and its parser |
+| `Sources/AppBundle/superKey/SuperKeyOwnership.swift` | Pure state machine: who owns Super, tap vs hold, repeats, chords |
+| `Sources/AppBundle/superKey/CapsLockRemap.swift` | hidutil remap and restore, with an injected runner |
+| `Sources/AppBundle/superKey/SuperKeyTap.swift` | The CGEventTap on its own thread |
+| `Sources/AppBundle/superKey/SuperKeyRuntime.swift` | Starts and stops tap and remap (reload, enable/disable, recording), watchdog, fail-safe |
+| `Sources/AppBundle/config/editableSuperKey.swift` | Minimal-diff edits: `super-key`, and ⌥ → Super conversion |
+| `Sources/AppBundle/ui/settings/SuperKeyPane.swift` | The Super key pane and the menu warning |
+
+Preview: `swift run KeybindingEditorPreview --config /tmp/scratch.toml --pane super-key [--super-status on|failed]`.
+
 ## Shipping it to yourself. Done
 
 `./package-app.sh --install` builds `AeroSpace Omarchy.app` (bundle id `dev.tobygodat.aerospace-omarchy`) from the

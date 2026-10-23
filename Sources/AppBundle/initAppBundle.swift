@@ -5,6 +5,8 @@ import Foundation
 @MainActor public func initAppBundle() {
     Task.startUnstructured {
         initTerminationHandler()
+        SuperKeyRuntime.shared.start() // Before the permission wait: gives Caps Lock back if the last run died with it remapped
+        SuperKeyRuntime.shared.restoreCapsLockOnTermination()
         unsafe _isCli = false
         initServerArgs()
         await waitForAccessibilityPermission_nonCancellable()
