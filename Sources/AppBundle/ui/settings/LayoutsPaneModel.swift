@@ -32,7 +32,8 @@ final class LayoutsPaneModel: ObservableObject {
 
     /// Order-insensitive, like the file: re-adding a removed override is no change
     private var layoutsChanged: Bool {
-        settings.defaultLayout != savedSettings.defaultLayout || settings.overridesByWorkspace != savedSettings.overridesByWorkspace
+        settings.defaultLayout != savedSettings.defaultLayout || settings.overridesByWorkspace != savedSettings.overridesByWorkspace ||
+            settings.scrollingColumnWidthPercent != savedSettings.scrollingColumnWidthPercent
     }
 
     var isDirty: Bool { layoutsChanged || editor.isDirty }
@@ -42,7 +43,8 @@ final class LayoutsPaneModel: ObservableObject {
         let before = savedSettings.overridesByWorkspace
         let after = settings.overridesByWorkspace
         let changedOverrides = Set(before.keys).union(after.keys).count { before[$0] != after[$0] }
-        return (settings.defaultLayout != savedSettings.defaultLayout ? 1 : 0) + changedOverrides + editor.unsavedChangeCount
+        return (settings.defaultLayout != savedSettings.defaultLayout ? 1 : 0) + changedOverrides +
+            (settings.scrollingColumnWidthPercent != savedSettings.scrollingColumnWidthPercent ? 1 : 0) + editor.unsavedChangeCount
     }
 
     /// The editor refuses to save bindings with errors, and its save runs first
@@ -127,6 +129,13 @@ final class LayoutsPaneModel: ObservableObject {
     /// Picking the saved layout keeps an absent key absent, so switching away and back again is no change
     func setDefault(_ layout: WorkspaceLayout) {
         settings.defaultLayout = layout == savedSettings.effectiveDefault ? savedSettings.defaultLayout : layout
+    }
+
+    /// Same rule for `scrolling-column-width`
+    func setScrollingColumnWidth(_ percent: Int) {
+        settings.scrollingColumnWidthPercent = percent == savedSettings.effectiveScrollingColumnWidthPercent
+            ? savedSettings.scrollingColumnWidthPercent
+            : percent
     }
 
     /// nil removes the override ("Same as default")

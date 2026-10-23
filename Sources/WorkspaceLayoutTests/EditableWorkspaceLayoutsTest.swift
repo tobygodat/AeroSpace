@@ -117,6 +117,31 @@ struct EditableWorkspaceLayoutsTest {
         ))
     }
 
+    @Test func columnWidthIsReadInsertedAfterTheDefaultLayoutAndChangedInPlace() {
+        #expect(settings(withLayouts).scrollingColumnWidthPercent == nil)
+        #expect(settings(withLayouts).effectiveScrollingColumnWidthPercent == 50)
+        let added = rewrite(withLayouts) { $0.scrollingColumnWidthPercent = 67 }
+        #expect(added == withLayouts.replacingOccurrences(
+            of: "default-workspace-layout = 'dwindle' # like Hyprland\n",
+            with: "default-workspace-layout = 'dwindle' # like Hyprland\nscrolling-column-width = 67\n",
+        ))
+        #expect(settings(added).scrollingColumnWidthPercent == 67)
+
+        let commented = added.replacingOccurrences(of: "scrolling-column-width = 67", with: "scrolling-column-width = 67 # two thirds")
+        #expect(rewrite(commented) { $0.scrollingColumnWidthPercent = 33 } ==
+            commented.replacingOccurrences(of: "scrolling-column-width = 67 # two thirds", with: "scrolling-column-width = 33 # two thirds"))
+        #expect(rewrite(commented) { $0.scrollingColumnWidthPercent = nil } ==
+            commented.replacingOccurrences(of: "scrolling-column-width = 67 # two thirds\n", with: ""))
+
+        #expect(rewrite(withoutLayouts) { $0.scrollingColumnWidthPercent = 33 } == withoutLayouts.replacingOccurrences(
+            of: "default-root-container-layout = 'tiles'\n",
+            with: "default-root-container-layout = 'tiles'\nscrolling-column-width = 33\n",
+        ))
+        #expect(readWorkspaceLayoutSettings("scrolling-column-width = 150\n").getIgnoringErrorsOrNil() == nil, "out of range")
+        #expect(readWorkspaceLayoutSettings("scrolling-column-width = 0.5\n").getIgnoringErrorsOrNil() == nil, "percent, not a fraction")
+        #expect(parseConfig("scrolling-column-width = 150\n").errors.count == 1, "the config parser agrees")
+    }
+
     @Test func clearDefaultDeletesItsLine() {
         let result = rewrite(withLayouts) { $0.defaultLayout = nil }
         #expect(result == withLayouts.replacingOccurrences(of: "default-workspace-layout = 'dwindle' # like Hyprland\n", with: ""))
@@ -327,6 +352,10 @@ final class EditableWorkspaceLayoutsPaneModelTest {
         model.setDefault(.tiles)
         model.setDefault(.dwindle)
         #expect(!model.isDirty, "going away and back is no change")
+        model.setScrollingColumnWidth(67)
+        #expect(model.isDirty && model.unsavedChangeCount == 1)
+        model.setScrollingColumnWidth(50)
+        #expect(!model.isDirty, "the absent key stays absent when the implicit default is picked again")
         model.setOverride("1", nil)
         #expect(model.isDirty)
         #expect(model.addOverride("1") == nil)

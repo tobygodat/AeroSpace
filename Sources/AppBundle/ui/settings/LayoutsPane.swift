@@ -91,7 +91,35 @@ struct LayoutsPane: View {
             .fixedSize(horizontal: false, vertical: true) // Equal card heights
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
+            columnWidthRow
         }
+    }
+
+    /// `scrolling-column-width`: thirds and halves cover what people pick; a hand-written value shows as its own segment
+    private var columnWidthRow: some View {
+        let current = model.settings.effectiveScrollingColumnWidthPercent
+        let choices = [33, 50, 67].contains(current) ? [33, 50, 67] : ([33, 50, 67] + [current]).sorted()
+        return HStack(spacing: 8) {
+            Text("Scrolling column width")
+                .font(.system(size: 13))
+                .foregroundStyle(KBTheme.textPrimary)
+            Text("How wide a new column is, as a share of the screen.")
+                .font(.system(size: 11))
+                .foregroundStyle(KBTheme.textTertiary)
+                .lineLimit(1)
+            Spacer(minLength: 16)
+            Picker("Scrolling column width", selection: Binding(get: { current }, set: { model.setScrollingColumnWidth($0) })) {
+                ForEach(choices, id: \.self) { percent in
+                    Text(percent == 33 ? "⅓" : percent == 50 ? "½" : percent == 67 ? "⅔" : "\(percent)%").tag(percent)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .padding(.horizontal, 8)
     }
 
     // MARK: Overrides
