@@ -358,7 +358,8 @@ On top of the container layouts above, every workspace has a layout of its own t
 - `tiles` - the default. New windows join the focused window's container
 - `dwindle` - Hyprland's default. A new window splits the focused window's area along its longer side, so windows spiral
 - `scrolling` - PaperWM/niri style. Windows are columns on a strip wider than the screen that scrolls to keep the focused
-  column in view. New columns are `scrolling-column-width` percent of the screen wide (10 to 100, default 50)
+  column in view. New columns are `scrolling-column-width` percent of the screen wide (10 to 100, default 50), counted so
+  that two halves or three thirds and the gaps between them fill the screen exactly
 - `floating` - every window floats where it stands. Switching away tiles the windows this layout floated; dialogs and
   windows floated with `layout floating` keep floating
 

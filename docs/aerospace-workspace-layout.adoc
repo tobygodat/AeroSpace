@@ -25,7 +25,7 @@ The workspace layout decides where new windows go and rebuilds the workspace tre
 * `dwindle` - Hyprland's default. A new window splits the focused window's area along its longer side, so the windows spiral
 * `scrolling` - PaperWM/niri style. Windows are columns on a strip that can be wider than the screen; the strip scrolls just
   enough to keep the focused column in view. A new window is a new column next to the focused one, `scrolling-column-width`
-  percent of the screen wide. `join-with left|right` stacks a window into the neighbouring column, `move left|right` moves
+  percent of the screen wide (gaps counted, so two halves fill the screen). `join-with left|right` stacks a window into the neighbouring column, `move left|right` moves
   between columns, `resize width` changes a column's width
 * `floating` - Every window floats where it stands. Switching away tiles the windows that this layout floated;
   dialogs and windows floated with `layout floating` keep floating. `layout tiling` is refused in a floating workspace
