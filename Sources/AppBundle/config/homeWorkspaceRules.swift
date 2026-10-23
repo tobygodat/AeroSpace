@@ -6,8 +6,11 @@ import TOMLDecoder
 //
 //     [[on-window-detected]]
 //         if.app-id = 'com.google.Chrome'
+//         check-further-callbacks = true
 //         run = 'move-node-to-workspace 4'
 //
+// `check-further-callbacks` is optional. The editor writes it and puts new rules first, because AeroSpace stops at the
+// first rule that matches a window: that way the home workspace applies, and so do the rules that follow.
 // Other rules are never shown or touched. Writing is a minimal text edit, like the bindings in editableBindings.swift.
 
 struct HomeWorkspaceRule: Identifiable, Equatable, Sendable {
@@ -25,9 +28,10 @@ struct HomeWorkspaceRule: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Workspace names the editor writes without quoting, and so can read back
+/// Workspace names the editor writes without quoting, and so can read back. "next" and "prev" are relative targets, not names
 func isPlainWorkspaceName(_ name: String) -> Bool {
-    !name.isEmpty && !name.hasPrefix("-") && name.allSatisfy { $0.isLetter || $0.isNumber || ".-_".contains($0) }
+    !name.isEmpty && !name.hasPrefix("-") && !["next", "prev"].contains(name) &&
+        name.allSatisfy { $0.isLetter || $0.isNumber || ".-_".contains($0) }
 }
 
 func readHomeWorkspaceRules(_ rawToml: String) -> Result<[HomeWorkspaceRule], String> {
@@ -66,20 +70,26 @@ func rewriteHomeWorkspaceRules(_ rawToml: String, _ desired: [HomeWorkspaceRule]
 
     let added = desired.filter { !handled.contains($0.id) }
     if !added.isEmpty {
-        let statements = scanTomlStatements(lines)
-        let allRuleStatements = onWindowDetectedSections(statements).flatMap { [$0.header] + $0.entries }
-        let indent = allRuleStatements.last { if case .keyValue = $0.kind { true } else { false } }
+        let sections = onWindowDetectedSections(scanTomlStatements(lines))
+        let indent = sections.lazy.flatMap(\.entries).first
             .map { String(lines[$0.lines.lowerBound].prefix { $0 == " " || $0 == "\t" }) } ?? "    "
-        let insertAt = allRuleStatements.last?.lines.upperBound ?? (lines.last == "" ? lines.count - 1 : lines.count)
-        let text = added.flatMap { rule in
+        let blocks = added.map { rule in
             [
-                "",
                 "[[on-window-detected]]",
                 indent + "if.app-id = " + serializeTomlString(rule.appId),
+                indent + "check-further-callbacks = true",
                 indent + "run = " + serializeTomlString(moveToWorkspaceCommand(rule.workspace)),
             ]
         }
-        edits.append((insertAt ..< insertAt, text))
+        if let first = sections.first {
+            // Above the first rule and the comment that introduces it
+            var insertAt = first.header.lines.lowerBound
+            while insertAt > 0 && lines[insertAt - 1].trimmingCharacters(in: .whitespaces).hasPrefix("#") { insertAt -= 1 }
+            edits.append((insertAt ..< insertAt, blocks.flatMap { $0 + [""] }))
+        } else {
+            let insertAt = lines.last == "" ? lines.count - 1 : lines.count
+            edits.append((insertAt ..< insertAt, blocks.flatMap { [""] + $0 }))
+        }
     }
     for edit in edits.sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
         lines.replaceSubrange(edit.range, with: edit.replacement)
@@ -107,8 +117,7 @@ private struct HomeRuleBlock {
     let header: TomlStatement
     let appIdStatement: TomlStatement
     let runStatement: TomlStatement
-
-    var lastLine: Int { max(appIdStatement.lines.upperBound, runStatement.lines.upperBound) }
+    let lastLine: Int
 }
 
 private struct OnWindowDetectedSection {
@@ -147,21 +156,25 @@ private func homeRuleBlocks(_ rawToml: String) -> Result<[HomeRuleBlock], String
     }
     let parsedRules = table["on-window-detected"] as? [Any] ?? []
     let sections = onWindowDetectedSections(scanTomlStatements(splitLines(rawToml)))
+    if parsedRules.count != sections.count {
+        return .failure("Home workspaces can only be edited when on-window-detected is written as [[on-window-detected]] tables. Please edit them in the config file.")
+    }
     var result: [HomeRuleBlock] = []
     for (index, section) in sections.enumerated() {
-        guard index < parsedRules.count,
-              let rule = parsedRules[index] as? [String: Any], Set(rule.keys) == ["if", "run"],
+        guard let rule = parsedRules[index] as? [String: Any],
+              Set(rule.keys) == ["if", "run"] || Set(rule.keys) == ["if", "run", "check-further-callbacks"] && rule["check-further-callbacks"] as? Bool == true,
               let condition = rule["if"] as? [String: Any], condition.count == 1,
               let appId = condition["app-id"] as? String,
               let workspace = homeWorkspace(fromRun: rule["run"]),
               !result.contains(where: { $0.appId == appId }),
-              section.entries.count == 2,
+              section.entries.count == rule.count,
               let appIdStatement = section.entries.first(where: { $0.keyPath == ["if", "app-id"] }),
-              let runStatement = section.entries.first(where: { $0.keyPath == ["run"] })
+              let runStatement = section.entries.first(where: { $0.keyPath == ["run"] }),
+              let lastLine = section.entries.map(\.lines.upperBound).max()
         else { continue }
         result.append(HomeRuleBlock(
             appId: appId, workspace: workspace, index: index,
-            header: section.header, appIdStatement: appIdStatement, runStatement: runStatement,
+            header: section.header, appIdStatement: appIdStatement, runStatement: runStatement, lastLine: lastLine,
         ))
     }
     return .success(result)

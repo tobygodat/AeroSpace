@@ -23,9 +23,10 @@ aerospace focus-app [-h|--help] --default-terminal
 
 * If the app has a window on any workspace or monitor, the command switches to that workspace and focuses the window.
   When the app has several windows, the one you used last is focused.
-* If the app is already focused, the command cycles to its next window, across workspaces.
+  A hidden app is unhidden on that workspace.
+* If the app is already in front, the command cycles to its next window, across workspaces.
   With a single window, the command does nothing.
-* If the app is running but AeroSpace sees no window of it (all windows are minimized, or the app is hidden),
+* If the app is running but AeroSpace sees no window of it (for example, all its windows are minimized),
   the command activates the app the way clicking its Dock icon does, which usually brings a window back.
 * If the app isn't running, the command launches it.
 
@@ -39,12 +40,14 @@ Bind it to a key to jump straight to an app:
     alt-shift-m = 'focus-app com.apple.Music'
 ----
 
-To give an app a home workspace, so that its new windows open there, combine it with `on-window-detected`:
+To give an app a home workspace, so that its new windows open there, combine it with `on-window-detected`.
+AeroSpace stops at the first rule that matches a window, so put the rule before your other rules and let them run too:
 
 [source,toml]
 ----
 [[on-window-detected]]
     if.app-id = 'com.google.Chrome'
+    check-further-callbacks = true
     run = 'move-node-to-workspace 4'
 ----
 

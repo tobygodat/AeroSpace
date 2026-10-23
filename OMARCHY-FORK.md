@@ -52,10 +52,13 @@ Original design notes:
 
 ## App hotkeys: focus or launch. Built; not yet tried inside the running WM
 
-`focus-app` jumps to an app wherever it is: it switches to the workspace of the app's most recently used window and
-focuses it. Pressing it again while the app is focused cycles through the app's windows across workspaces (one window:
-nothing happens). An app that runs without a window AeroSpace can focus (minimized, hidden) gets the Dock-click "reopen";
-an app that isn't running is launched.
+`focus-app` jumps to an app wherever it is: it switches to the workspace of the app's most recently used window (across
+all instances of the app) and focuses it; a hidden app is unhidden there. Pressing it again while macOS has the app in
+front cycles through the app's windows across workspaces (one window: nothing happens). "In front" is macOS's frontmost
+app, not AeroSpace's remembered focus, which stays put while an unmanaged window (like this settings window) is in front;
+when the two disagree, the command brings the window forward itself. An app with all windows minimized gets the
+Dock-click "reopen"; an app that isn't running is launched. Recency comes from `Window.lastNativeFocus`, bumped in
+`focusCache.swift` whenever macOS focus moves to another window.
 
 ```toml
 alt-b = 'focus-app --default-browser'        # the system's default browser, looked up on every press
@@ -65,10 +68,15 @@ alt-shift-m = 'focus-app com.apple.Music'    # a bundle id, or an app name
 
 Settings → **Apps** in the keybinding editor window lists app shortcuts: app (installed apps with icons, or Default
 browser / Default terminal), recorded shortcut, and an optional **home workspace**. A home workspace is a plain
-`[[on-window-detected]]` rule (`if.app-id` + `run = 'move-node-to-workspace N'`), so new windows of the app open there;
-other rules are never shown or touched. "Suggested" offers Omarchy's launch-or-focus apps for the configured Super key
-(the modifiers of the `workspace 1` binding); when those keys already open an app, the suggestion focuses that app instead.
-While Option is Super, a row notes the character the shortcut takes away (⌥B types ∫). Both panes share one Save.
+`[[on-window-detected]]` rule (`if.app-id`, optional `check-further-callbacks = true`, `run = 'move-node-to-workspace N'`),
+so new windows of the app open there; other rules are never shown or touched. New home rules go before all other rules
+with `check-further-callbacks = true`: AeroSpace stops at the first matching rule, so appending could leave the home
+unreachable behind an existing rule for the app. The home belongs to the app, not the row: two shortcuts to Chrome show
+one home, and pointing a shortcut at another app leaves Chrome's home in place. Configs that write `on-window-detected`
+as an inline array show homes read-only. "Suggested" offers Omarchy's launch-or-focus apps for the configured Super key
+(the modifiers of the binding that runs `workspace 1`; no such binding, no suggestions); when those keys already open an
+app, the suggestion focuses that app instead. While Option is Super, a row notes the character the shortcut takes away
+(⌥B types ∫). Both panes share one Save. In either pane, Esc while recording a just-added shortcut takes it back.
 
 | File | What |
 |---|---|

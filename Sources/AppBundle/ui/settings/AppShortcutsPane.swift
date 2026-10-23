@@ -25,8 +25,9 @@ struct AppShortcutsPane: View {
         }
         .onAppear {
             catalog.refresh()
-            editor.loadIfClean()
+            editor.stopRecording()
         }
+        .onDisappear { editor.stopRecording() } // Recording takes every key in the window
     }
 
     private var header: some View {
@@ -40,6 +41,7 @@ struct AppShortcutsPane: View {
                 .foregroundStyle(KBTheme.textTertiary)
             Spacer()
             Button {
+                editor.stopRecording() // So the app search can be typed in
                 isAddingApp = true
             } label: {
                 HStack(spacing: 5) {
@@ -69,7 +71,15 @@ struct AppShortcutsPane: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, editor.homeRulesError == nil ? 12 : 4)
+                if let homeRulesError = editor.homeRulesError {
+                    Text(homeRulesError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(KBTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 12)
+                }
 
                 let rows = editor.appShortcuts
                 if rows.isEmpty {
@@ -132,6 +142,7 @@ private struct AppShortcutRowView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
                 Button {
+                    editor.stopRecording() // So the app search can be typed in
                     isChangingApp = true
                 } label: {
                     AppLabel(target: row.target)
@@ -153,6 +164,7 @@ private struct AppShortcutRowView: View {
                 HomeWorkspaceMenu(workspaces: editor.knownWorkspaceNames, selection: row.home?.workspace) {
                     editor.setHome($0, of: row)
                 }
+                .disabled(editor.homeRulesError != nil)
                 .frame(width: AppColumn.home, alignment: .leading)
 
                 Button {

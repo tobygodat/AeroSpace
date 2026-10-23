@@ -626,7 +626,7 @@ struct KeybindingActionMenu: View {
         panel.prompt = "Choose"
         NSApp.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK, let url = panel.url {
-            set(FocusAppTarget.app(Bundle(url: url)?.bundleIdentifier ?? url.deletingPathExtension().lastPathComponent).focusAppCommand)
+            set(openAppCommand(name: url.deletingPathExtension().lastPathComponent))
         }
     }
 }

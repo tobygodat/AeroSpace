@@ -12,19 +12,33 @@ struct FocusAppCommand: Command {
         let windows = Workspace.all.flatMap(\.allLeafWindowsRecursive).filter {
             $0.app.rawAppBundleId == app.bundleId && $0.isReachableByFocusApp
         }
-        let lastUsed = windows.lazy.compactMap { ($0.app as? MacApp)?.lastNativeFocusedWindowId }.first
-        switch focusAppAction(windows: windows.map(\.windowId), focused: focus.windowOrNil?.windowId, lastUsed: lastUsed) {
+        // AeroSpace keeps its focus while macOS has an app it doesn't manage in front, like AeroSpace's own settings window
+        let focused = focus.windowOrNil.flatMap { $0.app.pid == frontmostAppPid ? $0.windowId : nil }
+        let lastUsed = windows.filter { $0.lastNativeFocus > 0 }.max { $0.lastNativeFocus < $1.lastNativeFocus }?.windowId
+        switch focusAppAction(windows: windows.map(\.windowId), focused: focused, lastUsed: lastUsed) {
             case .focus(let windowId):
-                return .from(bool: windows.first { $0.windowId == windowId }?.focusWindow() == true)
+                guard let window = windows.first(where: { $0.windowId == windowId }) else { return .fail }
+                if window.parent is MacosHiddenAppsWindowsContainer { (window.app as? MacApp)?.nsApp.unhide() }
+                // The session brings macOS along only when AeroSpace's focus changes
+                let isAlreadyAeroSpaceFocus = focus.windowOrNil == window
+                guard window.focusWindow() else { return .fail }
+                if isAlreadyAeroSpaceFocus { window.nativeFocus() }
+                return .succ
             case .stay:
                 return .succ
             case .open:
                 let configuration = NSWorkspace.OpenConfiguration()
                 configuration.activates = true
-                NSWorkspace.shared.openApplication(at: app.url, configuration: configuration)
+                let running = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == app.bundleId }
+                NSWorkspace.shared.openApplication(at: running?.bundleURL ?? app.url, configuration: configuration)
                 return .succ
         }
     }
+}
+
+/// Tests stand in for macOS with `appForTests`
+@MainActor private var frontmostAppPid: Int32? {
+    appForTests?.pid ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
 }
 
 enum FocusAppAction: Equatable {
@@ -32,14 +46,14 @@ enum FocusAppAction: Equatable {
     case focus(windowId: UInt32)
     /// The app's only window already has focus
     case stay
-    /// Launch the app, or reopen it when it runs without a window AeroSpace can focus (like clicking its Dock icon)
+    /// Launch the app, or reopen it when all its windows are minimized or it has none (like clicking its Dock icon)
     case open
 }
 
 /// - Parameters:
 ///   - windows: the app's windows across all workspaces, in a stable order (workspace, then tree order)
-///   - focused: the focused window
-///   - lastUsed: the app's most recently focused window
+///   - focused: the focused window, when macOS has its app in front
+///   - lastUsed: the most recently focused of `windows`
 func focusAppAction(windows: [UInt32], focused: UInt32?, lastUsed: UInt32?) -> FocusAppAction {
     guard let first = windows.first else { return .open }
     if let focused, let index = windows.firstIndex(of: focused) {
@@ -50,11 +64,11 @@ func focusAppAction(windows: [UInt32], focused: UInt32?, lastUsed: UInt32?) -> F
 }
 
 extension Window {
-    /// Minimized windows and windows of hidden apps can't be focused, so the app gets reopened instead
+    /// Minimized windows can't be focused, so the app gets reopened instead. Windows of hidden apps stay on their workspace
     fileprivate var isReachableByFocusApp: Bool {
         switch windowParentCases {
-            case .tilingContainer, .floatingWindowsContainer, .macosFullscreenWindowsContainer: true
-            case .macosMinimizedWindowsContainer, .macosHiddenAppsWindowsContainer, .macosPopupWindowsContainer, .unbound: false
+            case .tilingContainer, .floatingWindowsContainer, .macosFullscreenWindowsContainer, .macosHiddenAppsWindowsContainer: true
+            case .macosMinimizedWindowsContainer, .macosPopupWindowsContainer, .unbound: false
         }
     }
 }

@@ -20,6 +20,8 @@ final class KeybindingEditorModel: ObservableObject {
     /// Home workspaces of apps (`[[on-window-detected]]` rules), edited in the Apps pane and saved together with the bindings
     @Published var homeRules: [HomeWorkspaceRule] = []
     @Published private(set) var savedHomeRules: [HomeWorkspaceRule] = []
+    /// Why home workspaces can't be edited in this config, if they can't
+    @Published private(set) var homeRulesError: String? = nil
     @Published private(set) var configFileUrl: URL? = nil
 
     private var loadedText: String = ""
@@ -27,7 +29,7 @@ final class KeybindingEditorModel: ObservableObject {
     private var keyMonitor: Any? = nil
     private var didBackUp: Bool = false
     private let configUrlProvider: @MainActor () -> Result<URL, String>
-    let afterSave: @MainActor () async -> Void
+    private let afterSave: @MainActor () async -> Void
 
     init(configUrlProvider: @escaping @MainActor () -> Result<URL, String>, afterSave: @escaping @MainActor () async -> Void) {
         self.configUrlProvider = configUrlProvider
@@ -73,17 +75,19 @@ final class KeybindingEditorModel: ObservableObject {
             loadError = "Can't read \(configFileUrl?.path ?? "the config file")"
             return
         }
-        switch readEditableModes(text).flatMap({ modes in readHomeWorkspaceRules(text).map { (modes, $0) } }) {
+        switch readEditableModes(text) {
             case .failure(let msg):
                 loadError = msg
-            case .success(let (loaded, rules)):
+            case .success(let loaded):
                 loadError = nil
                 loadedText = text
                 keyMapping = parseConfig(text).config.keyMapping.resolve()
                 modes = loaded.isEmpty ? [EditableMode(name: mainModeId, bindings: [])] : loaded
                 savedModes = modes
-                homeRules = rules
-                savedHomeRules = rules
+                let rules = readHomeWorkspaceRules(text)
+                homeRulesError = rules.failureOrNil
+                homeRules = rules.getIgnoringErrorsOrNil() ?? []
+                savedHomeRules = homeRules
                 if !modes.contains(where: { $0.name == selectedMode }) {
                     selectedMode = modes.first?.name ?? mainModeId
                 }
@@ -183,7 +187,7 @@ final class KeybindingEditorModel: ObservableObject {
         modes.contains { mode in mode.bindings.contains { !errors(for: $0, in: mode).isEmpty } }
     }
 
-    private func canonicalShortcut(_ key: String) -> String? {
+    func canonicalShortcut(_ key: String) -> String? {
         guard case .success(let (modifiers, key)) = parseBinding(key, .emptyRoot, keyMapping) else { return nil }
         return modifiers.isEmpty ? key.toString() : modifiers.toString() + "-" + key.toString()
     }
@@ -228,8 +232,11 @@ final class KeybindingEditorModel: ObservableObject {
     func record(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
         guard let id = recordingBindingId else { return }
         let modifiers = modifierFlags.intersection([.option, .control, .command, .shift])
-        if keyCode == 53 && modifiers.isEmpty { // Plain esc cancels
+        if keyCode == 53 && modifiers.isEmpty { // Plain esc cancels, and takes back a binding that was just added
             stopRecording()
+            if modes.contains(where: { $0.bindings.contains { $0.id == id && $0.originalKey == nil && $0.key.isEmpty } }) {
+                deleteBinding(id)
+            }
             return
         }
         guard let key = Key(carbonKeyCode: UInt32(keyCode)), let notation = keyNotation(for: key) else {
@@ -270,7 +277,7 @@ final class KeybindingEditorModel: ObservableObject {
             return
         }
         let newText: String
-        switch rewriteBindings(currentText, modes).flatMap({ rewriteHomeWorkspaceRules($0, homeRules) }) {
+        switch rewriteBindings(currentText, modes).flatMap({ homeRules == savedHomeRules ? .success($0) : rewriteHomeWorkspaceRules($0, homeRules) }) {
             case .failure(let msg):
                 status = (msg, true)
                 return

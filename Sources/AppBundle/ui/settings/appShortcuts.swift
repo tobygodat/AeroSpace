@@ -4,8 +4,8 @@ import Common
 import HotKey
 
 /// A row of the Apps pane. The config is the source of truth: the shortcut is a main-mode binding that runs exactly one
-/// `focus-app` command, and the home workspace is a `HomeWorkspaceRule`. An app with a home workspace but no
-/// shortcut still gets a row
+/// `focus-app` command, and the home workspace is the `HomeWorkspaceRule` of the shortcut's app, shared by every row of
+/// that app. An app with a home workspace but no shortcut still gets a row
 struct AppShortcut: Identifiable, Equatable {
     let id: UUID
     let target: FocusAppTarget
@@ -21,7 +21,7 @@ extension KeybindingEditorModel {
         var appIdsWithRow: Set<String> = []
         for binding in mainMode?.bindings ?? [] {
             guard let target = focusAppTarget(of: binding) else { continue }
-            let appId = AppCatalog.shared.resolve(target)?.bundleId
+            let appId = homeAppId(of: target)
             rows.append(AppShortcut(id: binding.id, target: target, binding: binding, home: homeRules.first { $0.appId == appId }))
             if let appId { appIdsWithRow.insert(appId) }
         }
@@ -31,10 +31,10 @@ extension KeybindingEditorModel {
         return rows
     }
 
-    /// Adds a shortcut and starts recording its keys
-    func addAppShortcut(_ target: FocusAppTarget) {
+    /// Adds a shortcut and starts recording its keys. Esc takes it back
+    func addAppShortcut(_ target: FocusAppTarget, id: UUID = UUID()) {
         guard let modeIndex = modes.firstIndex(where: { $0.name == mainModeId }) else { return }
-        let binding = EditableBinding(originalKey: nil, key: "", commands: [target.focusAppCommand])
+        let binding = EditableBinding(id: id, originalKey: nil, key: "", commands: [target.focusAppCommand])
         modes[modeIndex].bindings.append(binding)
         startRecording(binding.id)
     }
@@ -42,24 +42,27 @@ extension KeybindingEditorModel {
     /// Adds a suggested shortcut. A binding that already uses the keys is changed in place, so its line stays where it is
     func addSuggestion(_ suggestion: AppShortcutSuggestion) {
         guard let modeIndex = modes.firstIndex(where: { $0.name == mainModeId }) else { return }
-        if let index = modes[modeIndex].bindings.firstIndex(where: { $0.key == suggestion.key }) {
+        let shortcut = canonicalShortcut(suggestion.key)
+        if let index = modes[modeIndex].bindings.firstIndex(where: { shortcut != nil && canonicalShortcut($0.key) == shortcut }) {
             modes[modeIndex].bindings[index].commands = [suggestion.target.focusAppCommand]
         } else {
             modes[modeIndex].bindings.append(EditableBinding(originalKey: nil, key: suggestion.key, commands: [suggestion.target.focusAppCommand]))
         }
     }
 
+    /// Changes the app the shortcut goes to. Home workspaces belong to apps, so the old app keeps its own
     func setTarget(_ target: FocusAppTarget, of row: AppShortcut) {
-        let newAppId = AppCatalog.shared.resolve(target)?.bundleId
-        if let home = row.home, let index = homeRules.firstIndex(where: { $0.id == home.id }) {
-            if let newAppId, !homeRules.contains(where: { $0.appId == newAppId && $0.id != home.id }) {
-                homeRules[index].appId = newAppId
-            } else {
-                homeRules.remove(at: index)
-            }
-        }
         if let binding = row.binding {
             updateBinding(binding.id) { $0.commands = [target.focusAppCommand] }
+            return
+        }
+        // A row with only a home workspace hands it to the new app
+        guard let home = row.home, let newAppId = homeAppId(of: target), newAppId != home.appId else { return }
+        if let existing = homeRules.firstIndex(where: { $0.appId == newAppId }) {
+            homeRules[existing].workspace = home.workspace
+            homeRules.removeAll { $0.id == home.id }
+        } else if let index = homeRules.firstIndex(where: { $0.id == home.id }) {
+            homeRules[index].appId = newAppId
         }
     }
 
@@ -67,23 +70,33 @@ extension KeybindingEditorModel {
     func setHome(_ workspace: String?, of row: AppShortcut) {
         if let home = row.home, let index = homeRules.firstIndex(where: { $0.id == home.id }) {
             if let workspace { homeRules[index].workspace = workspace } else { homeRules.remove(at: index) }
-        } else if let workspace, let appId = AppCatalog.shared.resolve(row.target)?.bundleId {
+        } else if let workspace, let appId = homeAppId(of: row.target) {
             homeRules.append(HomeWorkspaceRule(originalAppId: nil, appId: appId, workspace: workspace))
         }
     }
 
+    /// The home workspace goes with the app's last row
     func removeAppShortcut(_ row: AppShortcut) {
         if let binding = row.binding { deleteBinding(binding.id) }
-        if let home = row.home { homeRules.removeAll { $0.id == home.id } }
+        if let home = row.home, !appShortcuts.contains(where: { $0.binding != nil && $0.home?.id == home.id }) {
+            homeRules.removeAll { $0.id == home.id }
+        }
     }
 
-    /// Rows without a shortcut get a binding first
+    /// Rows without a shortcut get a binding first, with the row's id so the row stays put
     func recordShortcut(of row: AppShortcut) {
         if let binding = row.binding {
             toggleRecording(binding.id)
         } else {
-            addAppShortcut(row.target)
+            addAppShortcut(row.target, id: row.id)
         }
+    }
+
+    /// The app id a home workspace rule uses for the target. An app that isn't installed keeps the id the config names
+    func homeAppId(of target: FocusAppTarget) -> String? {
+        if let app = AppCatalog.shared.resolve(target) { return app.bundleId }
+        if case .app(let id) = target { return id }
+        return nil
     }
 
     /// Workspaces the home picker offers: 1-9 and every other workspace the config names
@@ -93,29 +106,36 @@ extension KeybindingEditorModel {
             let words = command.split(separator: " ").map(String.init)
             return words.first == "workspace" || words.first == "move-node-to-workspace" ? words.last : nil
         } ?? []
-        for name in fromBindings + homeRules.map(\.workspace)
-            where isPlainWorkspaceName(name) && !["next", "prev"].contains(name) && !names.contains(name)
-        {
+        for name in fromBindings + homeRules.map(\.workspace) where isPlainWorkspaceName(name) && !names.contains(name) {
             names.append(name)
         }
         return names
     }
 
-    /// The modifiers of the main-mode binding for "workspace 1", which is how the Omarchy presets place Super
-    var superKey: String {
-        guard let key = mainMode?.bindings.first(where: { $0.normalizedCommands == ["workspace 1"] })?.key,
-              key.hasSuffix("-1") else { return "alt" }
-        return String(key.dropLast(2))
+    /// The modifiers of the main-mode binding that switches to workspace 1, which is where the Omarchy presets put Super.
+    /// nil when there's no such binding
+    var superKey: String? {
+        mainMode?.bindings.lazy.compactMap { binding -> String? in
+            guard let command = binding.normalizedCommands.singleOrNil(),
+                  case .cmd(.cmd(let workspace as WorkspaceCommand)) = parseCommand(command, allowExecAndForget: false, allowEval: false),
+                  workspace.args.target.val.workspaceNameOrNil()?.raw == "1",
+                  case .success(let (modifiers, _)) = parseBinding(binding.key, .emptyRoot, self.keyMapping),
+                  !modifiers.isEmpty
+            else { return nil }
+            return modifiers.toString()
+        }.first
     }
 
     /// Omarchy's app shortcuts for the configured Super key that aren't in the config yet. When the keys already open an
     /// app (Super+B opening Chrome), the suggestion goes to that app rather than the default one
     var appShortcutSuggestions: [AppShortcutSuggestion] {
+        guard let superKey else { return [] }
         let rows = appShortcuts
         var takenAppIds = Set(rows.compactMap { AppCatalog.shared.resolve($0.target)?.bundleId })
         var takenTargets = Set(rows.map(\.target))
         return omarchyAppShortcuts(superKey: superKey).compactMap { key, command in
-            let existing = mainMode?.bindings.first { $0.key == key }
+            let shortcut = canonicalShortcut(key)
+            let existing = mainMode?.bindings.first { shortcut != nil && canonicalShortcut($0.key) == shortcut }
             if let existing, focusAppTarget(of: existing) != nil { return nil }
             let opened = existing.flatMap { appOpened(by: $0.normalizedCommands) }.flatMap { AppCatalog.shared.resolve(.app($0)) }
             guard let target = opened.map({ FocusAppTarget.app($0.bundleId) }) ?? parseFocusAppTarget(command) else { return nil }

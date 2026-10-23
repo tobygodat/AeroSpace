@@ -36,26 +36,72 @@ struct FocusAppTest {
         let here = Workspace.get(byName: "focus-app-test-1")
         let there = Workspace.get(byName: "focus-app-test-4")
         let elsewhere = Workspace.get(byName: "focus-app-test-5")
-        let editor = Window(id: 90_001, other, lastFloatingSize: nil, parent: here.rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
-        let notes1 = Window(id: 90_002, app, lastFloatingSize: nil, parent: there.rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
-        let notes2 = Window(id: 90_003, app, lastFloatingSize: nil, parent: elsewhere.rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
-        defer { [editor, notes1, notes2].forEach { $0.unbindFromParent() } }
+        let editor = window(90_001, other, here.rootTilingContainer)
+        let notes1 = window(90_002, app, there.rootTilingContainer)
+        let notes2 = window(90_003, app, elsewhere.rootTilingContainer)
+        defer { cleanUp(editor, notes1, notes2) }
         #expect(editor.focusWindow())
+        appForTests = other
 
-        let run = { () -> BinaryExitCode in
-            FocusAppCommand(args: parseCommand(["focus-app", "com.apple.Notes"]).cmdOrNil.map { ($0 as! FocusAppCommand).args }!)
-                .run(.defaultEnv, CmdIoImpl(stdin: .emptyStdin))
-        }
-        #expect(run() == .succ)
+        #expect(pressFocusApp("com.apple.Notes") == .succ)
         #expect(focus.workspace == there)
         #expect(focus.windowOrNil == notes1)
 
-        #expect(run() == .succ)
+        #expect(pressFocusApp("com.apple.Notes") == .succ)
         #expect(focus.workspace == elsewhere)
         #expect(focus.windowOrNil == notes2)
 
-        #expect(run() == .succ)
+        #expect(pressFocusApp("com.apple.Notes") == .succ)
         #expect(focus.windowOrNil == notes1)
+    }
+
+    @Test func bringsTheAppForwardWhenAeroSpaceFocusIsAlreadyOnIt() {
+        let app = FakeApp(bundleId: "com.apple.Notes")
+        let notes = window(90_011, app, Workspace.get(byName: "focus-app-test-6").rootTilingContainer)
+        defer { cleanUp(notes) }
+        #expect(notes.focusWindow())
+        // AeroSpace's own settings window is in front. AeroSpace doesn't manage it, so its focus stays on Notes
+        appForTests = FakeApp(bundleId: "bobko.aerospace")
+
+        #expect(pressFocusApp("com.apple.Notes") == .succ)
+        #expect(notes.nativeFocusCount == 1)
+        #expect(appForTests?.pid == app.pid)
+
+        #expect(pressFocusApp("com.apple.Notes") == .succ) // In front now, with one window: nothing to do
+        #expect(notes.nativeFocusCount == 1)
+    }
+
+    @Test func goesToTheMostRecentlyUsedWindowOfAnyInstanceOfTheApp() {
+        let instance1 = FakeApp(bundleId: "com.apple.Notes")
+        let instance2 = FakeApp(bundleId: "com.apple.Notes")
+        let other = FakeApp(bundleId: "com.apple.TextEdit")
+        let editor = window(90_021, other, Workspace.get(byName: "focus-app-test-1").rootTilingContainer)
+        let older = window(90_022, instance1, Workspace.get(byName: "focus-app-test-4").rootTilingContainer)
+        let newer = window(90_023, instance2, Workspace.get(byName: "focus-app-test-5").rootTilingContainer)
+        defer { cleanUp(editor, older, newer) }
+        older.lastNativeFocus = 3
+        newer.lastNativeFocus = 7
+        editor.lastNativeFocus = 9
+        #expect(editor.focusWindow())
+        appForTests = other
+
+        #expect(pressFocusApp("com.apple.Notes") == .succ)
+        #expect(focus.windowOrNil == newer)
+    }
+
+    @Test func windowOfAHiddenAppIsFocusedOnItsWorkspace() {
+        let app = FakeApp(bundleId: "com.apple.Notes")
+        let other = FakeApp(bundleId: "com.apple.TextEdit")
+        let there = Workspace.get(byName: "focus-app-test-4")
+        let editor = window(90_031, other, Workspace.get(byName: "focus-app-test-1").rootTilingContainer)
+        let notes = window(90_032, app, there.macOsNativeHiddenAppsWindowsContainer)
+        defer { cleanUp(editor, notes) }
+        #expect(editor.focusWindow())
+        appForTests = other
+
+        #expect(pressFocusApp("com.apple.Notes") == .succ)
+        #expect(focus.workspace == there)
+        #expect(focus.windowOrNil == notes)
     }
 
     @Test func unknownAppFails() {
@@ -84,6 +130,35 @@ struct FocusAppTest {
         }
         #expect(FocusAppTarget.app("com.google.Chrome").focusAppCommand == "focus-app com.google.Chrome")
         #expect(FocusAppTarget.defaultBrowser.focusAppCommand == "focus-app --default-browser")
+    }
+}
+
+/// Runs the command, then lets macOS follow AeroSpace's focus the way the session after a hotkey does
+@MainActor
+private func pressFocusApp(_ app: String) -> BinaryExitCode {
+    let args = (parseCommand(["focus-app", app]).cmdOrNil as! FocusAppCommand).args
+    let result = FocusAppCommand(args: args).run(.defaultEnv, CmdIoImpl(stdin: .emptyStdin))
+    appForTests = focus.windowOrNil?.app
+    return result
+}
+
+@MainActor
+private func window(_ id: UInt32, _ app: FakeApp, _ parent: NonLeafTreeNodeObject) -> FakeWindow {
+    FakeWindow(id: id, app, lastFloatingSize: nil, parent: parent, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+}
+
+@MainActor
+private func cleanUp(_ windows: Window...) {
+    windows.forEach { $0.unbindFromParent() }
+    appForTests = nil
+}
+
+private final class FakeWindow: Window {
+    var nativeFocusCount = 0
+
+    @MainActor override func nativeFocus() {
+        nativeFocusCount += 1
+        appForTests = app
     }
 }
 
