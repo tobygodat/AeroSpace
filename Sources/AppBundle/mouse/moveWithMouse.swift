@@ -78,8 +78,7 @@ func swapWindows(mruDominant window1: Window, _ window2: Window) {
     if window1 == window2 { return }
 
     // Columns of a scrolling strip take their width along; everywhere else the slots keep their weights
-    let isStrip = window1.parent === window2.parent && (window1.parent as? TilingContainer)?.isRootContainer == true &&
-        window1.nodeWorkspace?.layout == .scrolling
+    let isStrip = window1.parent === window2.parent && (window1.parent as? TilingContainer)?.isScrollingStrip == true
     let binding2 = window2.unbindFromParent()
     let binding1 = window1.unbindFromParent()
 

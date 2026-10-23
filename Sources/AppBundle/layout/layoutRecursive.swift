@@ -27,10 +27,6 @@ extension Workspace {
         lastAppliedLayoutPhysicalRect = rect
         lastAppliedLayoutVirtualRect = rect
         let root = rootTilingContainer
-        // A lone column is a direct child of the root, so `layout accordion` or `layout vertical` on it lands on
-        // the root. The strip stays horizontal tiles, or column weights would stop meaning widths
-        root.layout = .tiles
-        root.setOrientationOnly(.h)
         root.lastAppliedLayoutPhysicalRect = rect
         root.lastAppliedLayoutVirtualRect = rect
 
@@ -39,11 +35,10 @@ extension Workspace {
         var starts: [CGFloat] = []
         var total: CGFloat = 0
         for column in root.children {
+            // The weight is the width (normalizeScrollingStrip sizes a fresh column); a screen that can't show all of
+            // a column shows what fits and leaves the weight alone
             let weight = column.getWeight(.h)
-            // WEIGHT_AUTO into an empty root and a tiles rebuild both leave a weight of 1, which means "unsized" here. A
-            // sized column keeps its weight even when a narrower screen can't show all of it
             let width = weight <= 1 ? defaultScrollingColumnWidth : weight.coerce(in: scrollingColumnWidths)
-            if weight <= 1 { column.setWeight(.h, width) }
             let start = starts.isEmpty ? 0 : total + gap
             starts.append(start)
             widths.append(width)
@@ -81,6 +76,7 @@ extension Workspace {
             }
             return candidates.minByOrDie { candidate in otherMonitors.sumOfDouble { overlap(candidate, $0.rect) } }
         }
+        // A parked node has no physical rect, like a fullscreen window: the one-point sliver must not catch the mouse
         func park(_ node: TreeNode, width: CGFloat, virtual: Rect) {
             if let window = node as? Window {
                 if window.windowId == currentlyManipulatedWithMouseWindowId { return }
@@ -88,10 +84,8 @@ extension Workspace {
                 let frame = parkedFrame(width: width, inset: (window.app as? MacApp)?.appId == .zoom ? 0 : 1)
                 window.isFullscreen = false
                 window.setAxFrame(frame.topLeftCorner, frame.size)
-                node.lastAppliedLayoutPhysicalRect = frame
-            } else {
-                node.lastAppliedLayoutPhysicalRect = parkedFrame(width: width, inset: 1)
             }
+            node.lastAppliedLayoutPhysicalRect = nil
             node.lastAppliedLayoutVirtualRect = virtual
             for child in node.children {
                 park(child, width: width, virtual: virtual)

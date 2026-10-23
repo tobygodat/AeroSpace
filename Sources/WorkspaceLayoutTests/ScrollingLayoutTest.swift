@@ -54,7 +54,7 @@ extension WorkspaceLayoutTest {
         +-----------------------+-----------------------+
         """)
         expectRect(first.lastAppliedLayoutVirtualRect, rect(-960, 0, 960, 1080), "where 1 would be without parking")
-        expectRect(first.lastAppliedLayoutPhysicalRect, parked, "mouse hit-testing sees the parked frame")
+        #expect(first.lastAppliedLayoutPhysicalRect == nil, "the one-point sliver must not catch the mouse")
         expectRect(third.lastAppliedLayoutVirtualRect, rect(960, 0, 960, 1080))
 
         // 2 is already in view, so focusing it moves nothing
@@ -91,7 +91,7 @@ extension WorkspaceLayoutTest {
         """)
     }
 
-    @Test func scrollingColumnsAreAnInnerGapApart() async throws {
+    @Test func scrollingColumnsAreAnInnerGapApartAndTwoHalvesStillFillTheScreen() async throws {
         config.gaps.inner.horizontal = .constant(10)
         let workspace = Workspace.get(byName: "scrolling")
         #expect(workspace.focusWorkspace())
@@ -103,17 +103,31 @@ extension WorkspaceLayoutTest {
         #expect(first.focusWindow())
         try await workspace.layoutWorkspace()
         #expect(workspace.scrollOffset == 0)
-        expectRect(first.frame, rect(0, 0, 960, 1080))
-        expectRect(second.frame, rect(970, 0, 960, 1080), "a gap after 1")
-        expectRect(third.frame, parked, "3 starts at 1940, past the screen, so it is parked")
+        expectRect(first.frame, rect(0, 0, 955, 1080), "a half column is half of the screen minus half a gap")
+        expectRect(second.frame, rect(965, 0, 955, 1080), "so two halves and the gap between them fill the screen")
+        expectRect(third.frame, rect(1919, 1079, 955, 1080), "3 starts at 1930, past the screen, so it is parked")
 
-        // The strip is 2900 wide, so showing 3 scrolls by 980 and cuts the gap's worth off 2
+        // The strip is 2885 wide, so showing 3 scrolls by 965
         #expect(third.focusWindow())
         try await workspace.layoutWorkspace()
-        #expect(workspace.scrollOffset == 980)
-        expectRect(first.frame, parked)
-        expectRect(second.frame, rect(-10, 0, 960, 1080), "2 overlaps the screen, so it is laid out where it is rather than parked")
-        expectRect(third.frame, rect(960, 0, 960, 1080))
+        #expect(workspace.scrollOffset == 965)
+        expectRect(first.frame, rect(1919, 1079, 955, 1080))
+        expectRect(second.frame, rect(0, 0, 955, 1080))
+        expectRect(third.frame, rect(965, 0, 955, 1080))
+
+        // A column that only partly fits is shown as is (there is no monitor for it to spill onto)
+        #expect(first.focusWindow())
+        await run("resize width 700")
+        try await workspace.layoutWorkspace()
+        #expect(workspace.scrollOffset == 0)
+        expectRect(first.frame, rect(0, 0, 700, 1080))
+        expectRect(second.frame, rect(710, 0, 955, 1080))
+        expectRect(third.frame, rect(1675, 0, 955, 1080), "3 peeks in from the right")
+
+        // Focusing 2, which is fully in view, scrolls nothing
+        #expect(second.focusWindow())
+        try await workspace.layoutWorkspace()
+        #expect(workspace.scrollOffset == 0)
     }
 
     @Test func scrollingGivesAnUnsizedColumnTheDefaultWidthAndCapsAColumnAtTheScreen() async throws {
@@ -124,8 +138,9 @@ extension WorkspaceLayoutTest {
         let second = TestWindow.new(id: 2, parent: workspace.rootTilingContainer, adaptiveWeight: 3000)
         #expect(first.getWeight(.h) == 1)
 
-        try await workspace.layoutWorkspace()
+        workspace.normalizeContainers()
         #expect(workspace.rootTilingContainer.children.map { $0.getWeight(.h) } == [960, 3000], "the unsized column is sized now; the wide one keeps its weight for a wider screen")
+        try await workspace.layoutWorkspace()
         #expect(workspace.scrollOffset == 960, "2 is focused and as wide as the screen")
         expectRect(first.frame, parked)
         expectRect(second.frame, rect(0, 0, 1920, 1080))
@@ -315,7 +330,7 @@ extension WorkspaceLayoutTest {
         await run("workspace-layout floating")
         try await workspace.layoutWorkspace()
         #expect(workspace.floatingWindowIds == [1, 2, 3])
-        expectRect(first.frame, rect(960, 0, 960, 1080), "1 comes back where the strip had it, pulled onto the screen")
+        expectRect(first.frame, rect(0, 0, 960, 1080), "1 was off the left edge of the strip, so it comes in at the left edge, full height again")
         expectRect(second.frame, rect(0, 0, 960, 1080), "2 and 3 float where they stood")
         expectRect(third.frame, rect(960, 0, 960, 1080))
     }

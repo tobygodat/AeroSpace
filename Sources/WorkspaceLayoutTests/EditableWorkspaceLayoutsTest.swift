@@ -137,6 +137,9 @@ struct EditableWorkspaceLayoutsTest {
             of: "default-root-container-layout = 'tiles'\n",
             with: "default-root-container-layout = 'tiles'\nscrolling-column-width = 33\n",
         ))
+        let hex = "scrolling-column-width = 0x32 # hex\n[mode.main.binding]\n"
+        #expect(settings(hex).scrollingColumnWidthPercent == 50)
+        #expect(rewrite(hex) { $0.scrollingColumnWidthPercent = 67 } == "scrolling-column-width = 67\n[mode.main.binding]\n", "a value the editor can't patch in place gets a fresh line")
         #expect(readWorkspaceLayoutSettings("scrolling-column-width = 150\n").getIgnoringErrorsOrNil() == nil, "out of range")
         #expect(readWorkspaceLayoutSettings("scrolling-column-width = 0.5\n").getIgnoringErrorsOrNil() == nil, "percent, not a fraction")
         #expect(parseConfig("scrolling-column-width = 150\n").errors.count == 1, "the config parser agrees")

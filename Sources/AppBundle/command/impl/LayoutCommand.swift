@@ -98,7 +98,7 @@ struct LayoutCommand: Command {
         case .floatingWindowsContainer:
             return .fail(io.err("The window is non-tiling"))
         case .tilingContainer(let parent):
-            if parent.isRootContainer && parent.nodeWorkspace?.layout == .scrolling {
+            if parent.isScrollingStrip {
                 return .fail(io.err("The scrolling layout keeps its columns in a horizontal row. Use 'join-with' to stack windows into a column, then change the column's layout"))
             }
             let targetOrientation = targetOrientation ?? parent.orientation

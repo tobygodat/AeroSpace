@@ -202,10 +202,11 @@ private func scalarValueRange(_ chars: [Character], from keyEnd: Int) -> Range<I
     skipWhitespace()
     let start = i
     guard i < chars.count else { return nil }
-    if chars[i].isNumber || chars[i] == "-" || chars[i] == "+" {
+    if chars[i].isASCII && (chars[i].isNumber || chars[i] == "-" || chars[i] == "+") {
         i += 1
-        while i < chars.count && (chars[i].isNumber || chars[i] == "_") { i += 1 }
-        return start ..< i
+        while i < chars.count && chars[i].isASCII && (chars[i].isNumber || chars[i] == "_") { i += 1 }
+        // A plain decimal ends the value; anything else (0x32, 1e3, 2.5) gets a fresh line instead
+        return i == chars.count || chars[i] == " " || chars[i] == "\t" || chars[i] == "#" ? start ..< i : nil
     }
     guard chars[i] == "'" || chars[i] == "\"" else { return nil }
     let quote = chars[i]

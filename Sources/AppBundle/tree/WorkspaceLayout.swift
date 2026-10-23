@@ -54,26 +54,17 @@ extension Workspace {
                 window.unbindFromParent()
                 window.floatedByLayout = false
             }
-            // Only empty containers are left in the root. Dwindle counts the root's children, so they go now rather
-            // than at the next normalization
+            // Only empty containers are left in the root. Dwindle and scrolling count the root's children, so they go
+            // now rather than at the next normalization
             for container in rootTilingContainer.children {
                 container.unbindFromParent()
             }
-            if layout == .dwindle {
-                rootTilingContainer.layout = .tiles
-            }
-            if layout == .scrolling {
-                rootTilingContainer.layout = .tiles
-                rootTilingContainer.setOrientationOnly(.h)
-            }
+            if layout != .tiles { rootTilingContainer.layout = .tiles } // tiles keeps an accordion root, like flatten-workspace-tree
+            if layout == .scrolling { rootTilingContainer.setOrientationOnly(.h) }
             scrollOffset = 0
+            // Re-inserting through the policy gives the tree the user would have gotten by opening the windows one by one
             for window in windows {
-                let data = switch layout {
-                    case .tiles: BindingData(parent: rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
-                    case .dwindle: dwindleBindingData()
-                    case .scrolling: scrollingBindingData()
-                    case .floating: die("handled above")
-                }
+                let data = bindingDataForNewTilingWindow()
                 window.bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
             }
         }
@@ -104,18 +95,22 @@ extension Workspace {
     private func floatTilingWindows() {
         let screen = workspaceMonitor.visibleRectPaddedByOuterGaps
         for window in rootTilingContainer.allLeafWindowsRecursive {
-            window.lastFloatingSize = window.lastAppliedLayoutPhysicalRect?.size ?? window.lastFloatingSize
+            let frame = window.lastAppliedLayoutPhysicalRect
             window.bindAsFloatingWindow(to: self)
             window.floatedByLayout = true
-            // A column the scrolling layout parked off screen would float there, out of reach: pull it onto the screen
-            if let frame = window.lastAppliedLayoutPhysicalRect {
-                let onScreen = CGPoint(
-                    x: frame.minX.coerce(in: screen.minX ... max(screen.minX, screen.maxX - frame.width)),
-                    y: frame.minY.coerce(in: screen.minY ... max(screen.minY, screen.maxY - frame.height)),
+            if window.isFullscreen { continue } // it floats at the size it has, as after `layout floating`
+            window.lastFloatingSize = (frame ?? window.lastAppliedLayoutVirtualRect)?.size ?? window.lastFloatingSize
+            // A column the scrolling layout parked (no frame) or let peek in from an edge would float out of reach:
+            // it goes where the strip had it, pulled onto the screen
+            let isOnScreen = frame.map { screen.minX <= $0.minX && $0.maxX <= screen.maxX && screen.minY <= $0.minY && $0.maxY <= screen.maxY } ?? false
+            if !isOnScreen, let virtual = window.lastAppliedLayoutVirtualRect {
+                window.setAxFrame(
+                    CGPoint(
+                        x: virtual.minX.coerce(in: screen.minX ... max(screen.minX, screen.maxX - virtual.width)),
+                        y: virtual.minY.coerce(in: screen.minY ... max(screen.minY, screen.maxY - virtual.height)),
+                    ),
+                    virtual.size,
                 )
-                if onScreen != frame.topLeftCorner {
-                    window.setAxFrame(onScreen, nil)
-                }
             }
         }
         for container in rootTilingContainer.children {
@@ -153,10 +148,27 @@ extension Workspace {
         )
     }
 
-    /// Scrolling: `scrolling-column-width` percent of the workspace width, in whole points
+    /// Scrolling: `scrolling-column-width` percent of the workspace width, in whole points, counted so that the
+    /// matching number of columns plus the inner gaps between them fill the screen exactly
     @MainActor
     var defaultScrollingColumnWidth: CGFloat {
-        (CGFloat(config.scrollingColumnWidthPercent) / 100 * workspaceMonitor.visibleRectPaddedByOuterGaps.width).rounded()
+        let gap = CGFloat(ResolvedGaps(gaps: config.gaps, monitor: workspaceMonitor).inner.horizontal)
+        let share = CGFloat(config.scrollingColumnWidthPercent) / 100
+        return ((workspaceMonitor.visibleRectPaddedByOuterGaps.width + gap) * share - gap).rounded()
+    }
+
+    /// The shape the scrolling layout relies on, restored before every layout pass by `normalizeContainers`: the root
+    /// is a horizontal row of columns, and every column has a width. A lone column is a direct child of the root, so
+    /// `layout horizontal` inside a column can flip the root through `changeOrientation`'s ancestor walk; a column bound
+    /// with WEIGHT_AUTO into an empty root, or by a tiles rebuild, arrives with a weight of 1, which means "unsized"
+    @MainActor
+    func normalizeScrollingStrip() {
+        guard layout == .scrolling else { return }
+        rootTilingContainer.layout = .tiles
+        rootTilingContainer.setOrientationOnly(.h)
+        for column in rootTilingContainer.children where column.getWeight(.h) <= 1 {
+            column.setWeight(.h, defaultScrollingColumnWidth)
+        }
     }
 
     /// A sized column is between the narrowest `scrolling-column-width` and the screen
@@ -207,6 +219,12 @@ extension Workspace {
         mru.bind(to: container, adaptiveWeight: WEIGHT_AUTO, index: 0)
         return BindingData(parent: container, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
     }
+}
+
+extension TilingContainer {
+    /// The root of a scrolling workspace: its children are the columns and their horizontal weights are widths in
+    /// points, so the tiles rules that share one weight sum between siblings don't apply to it
+    @MainActor var isScrollingStrip: Bool { isRootContainer && nodeWorkspace?.layout == .scrolling }
 }
 
 extension Window {
