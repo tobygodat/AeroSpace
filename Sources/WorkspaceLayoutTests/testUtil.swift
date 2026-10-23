@@ -17,7 +17,6 @@ func setUpWorkspacesForTests() {
 
     for workspace in Workspace.all {
         workspace.layoutOverride = nil
-        workspace.windowsFloatedByLayout = []
         for child in workspace.children {
             child.unbindFromParent()
         }
@@ -32,15 +31,17 @@ func setUpWorkspacesForTests() {
     TestApp.shared.windows = []
 }
 
-/// Runs a command line the way a keybinding would, refresh included
+/// Runs a command line the way a keybinding would, refresh included, and returns what it printed to stderr
 @MainActor
-func run(_ command: String, sourceLocation: SourceLocation = #_sourceLocation) async {
+@discardableResult
+func run(_ command: String, expectSuccess: Bool = true, sourceLocation: SourceLocation = #_sourceLocation) async -> [String] {
     guard let parsed = parseCommand(command, allowExecAndForget: false, allowEval: false).cmdOrNil else {
         Issue.record("'\(command)' doesn't parse", sourceLocation: sourceLocation)
-        return
+        return []
     }
     let result = await parsed.run(.defaultEnv, .emptyStdin)
-    #expect(result.exitCode.rawValue == 0, "'\(command)' failed: \(result.stderr)", sourceLocation: sourceLocation)
+    #expect((result.exitCode.rawValue == 0) == expectSuccess, "'\(command)' exited \(result.exitCode.rawValue): \(result.stderr)", sourceLocation: sourceLocation)
+    return result.stderr
 }
 
 extension Workspace {
@@ -49,7 +50,7 @@ extension Workspace {
     @discardableResult
     @MainActor
     func openWindow(id: UInt32) -> TestWindow {
-        let data = bindingDataForNewTilingWindow(windowId: id, window: nil)
+        let data = bindingDataForNewTilingWindow()
         return TestWindow.new(id: id, parent: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
     }
 

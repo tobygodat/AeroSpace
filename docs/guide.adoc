@@ -357,7 +357,8 @@ On top of the container layouts above, every workspace has a layout of its own t
 
 - `tiles` - the default. New windows join the focused window's container
 - `dwindle` - Hyprland's default. A new window splits the focused window's area along its longer side, so windows spiral
-- `floating` - every window floats. Switching away tiles the windows this layout floated
+- `floating` - every window floats where it stands. Switching away tiles the windows this layout floated; dialogs and
+  windows floated with `layout floating` keep floating
 
 [source,toml]
 ----

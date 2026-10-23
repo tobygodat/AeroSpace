@@ -3,6 +3,7 @@ import AppKit
 extension Workspace {
     @MainActor
     func layoutWorkspace() async throws {
+        reconcileFloatingLayout()
         if isEffectivelyEmpty { return }
         let rect = workspaceMonitor.visibleRectPaddedByOuterGaps
         // If monitors are aligned vertically and the monitor below has smaller width, then macOS may not allow the

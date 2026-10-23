@@ -23,7 +23,8 @@ The workspace layout decides where new windows go and rebuilds the workspace tre
 
 * `tiles` - AeroSpace's tree of tiles and accordions. New windows join the focused window's container
 * `dwindle` - Hyprland's default. A new window splits the focused window's area along its longer side, so the windows spiral
-* `floating` - Every window floats. Switching away tiles the windows that this layout floated
+* `floating` - Every window floats where it stands. Switching away tiles the windows that this layout floated;
+  dialogs and windows floated with `layout floating` keep floating. `layout tiling` is refused in a floating workspace
 
 The layout set by this command lasts until `reload-config`, which applies `default-workspace-layout` and the
 `[workspace-layout]` table from the config again. The Layouts pane of the Keybindings window edits both.

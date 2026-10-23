@@ -9,7 +9,6 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceLayoutTest {
     init() {
-        isUnitTest = true
         setUpWorkspacesForTests()
     }
 
@@ -158,26 +157,29 @@ struct WorkspaceLayoutTest {
         let moves = [first.setAxFrameCallCount, second.setAxFrameCallCount]
 
         workspace.layoutOverride = .floating
-        workspace.applyLayout(.floating)
+        workspace.applyLayout()
         try await workspace.layoutWorkspace()
         #expect(workspace.floatingWindowIds == [0, 1, 2])
         #expect(workspace.tilingWindowIds == [])
-        #expect(workspace.windowsFloatedByLayout == [1, 2], "the dialog floated on its own, so it isn't recorded")
+        #expect(workspace.floatingWindows.map(\.floatedByLayout) == [false, true, true], "the dialog floated on its own, so it isn't marked")
         expectRect(first.frame, tiledFrames[0]!, "1 keeps the frame it had as a tile")
         expectRect(second.frame, tiledFrames[1]!, "2 keeps the frame it had as a tile")
         #expect([first.setAxFrameCallCount, second.setAxFrameCallCount] == moves, "nothing moved the windows")
         #expect(first.lastFloatingSize == tiledFrames[0]!.size)
 
         let third = workspace.openWindow(id: 3)
-        #expect(third.isFloating)
-        #expect(workspace.windowsFloatedByLayout == [1, 2, 3])
+        #expect(!third.isFloating, "a window that is being registered has no Window object to mark yet, so it lands in the tree")
+        try await workspace.layoutWorkspace()
+        #expect(third.isFloating, "and the layout pass floats it before anything is laid out")
+        #expect(third.floatedByLayout)
+        #expect(third.setAxFrameCallCount == 0)
 
         workspace.layoutOverride = .tiles
-        workspace.applyLayout(.tiles)
+        workspace.applyLayout()
         try await workspace.layoutWorkspace()
         #expect(workspace.tilingWindowIds == [1, 2, 3])
         #expect(workspace.floatingWindowIds == [0], "the dialog still floats")
-        #expect(workspace.windowsFloatedByLayout == [])
+        #expect(workspace.floatingWindows.allSatisfy { !$0.floatedByLayout })
         expectRect(dialog.frame, rect(100, 100, 400, 300))
         expectRect(first.frame, rect(0, 0, 640, 1080))
         expectRect(third.frame, rect(1280, 0, 640, 1080))
@@ -193,7 +195,7 @@ struct WorkspaceLayoutTest {
         expectRect(workspace.tilingFrames[3].rect, rect(1440, 0, 480, 1080), "tiles: four columns")
 
         workspace.layoutOverride = .dwindle
-        workspace.applyLayout(.dwindle)
+        workspace.applyLayout()
         try await workspace.layoutWorkspace()
         #expect(diagram(frames: workspace.tilingFrames, screen: testScreen) == """
         +-----------------------+-----------------------+
@@ -216,13 +218,94 @@ struct WorkspaceLayoutTest {
         #expect(workspace.tilingWindowIds == [1, 5, 2, 3, 4], "depth-first order of the spiral")
 
         workspace.layoutOverride = .tiles
-        workspace.applyLayout(.tiles)
+        workspace.applyLayout()
         try await workspace.layoutWorkspace()
         #expect(workspace.tilingWindowIds == [1, 5, 2, 3, 4], "flattened in depth-first order")
         #expect(workspace.rootTilingContainer.children.allSatisfy { $0 is Window })
         for (column, window) in workspace.rootTilingContainer.allLeafWindowsRecursive.enumerated() {
             expectRect((window as! TestWindow).frame, rect(CGFloat(column) * 384, 0, 384, 1080), "window \(window.windowId) is column \(column)")
         }
+    }
+
+    @Test func dwindleNeverSplitsInsideAnAccordion() async throws {
+        // default-root-container-layout = 'accordion', Super L (layout tiles accordion) and smartLayoutAtStartup all
+        // leave an accordion root behind. Dwindle wraps the split in a tiles container instead of adding a tab
+        let workspace = Workspace.get(byName: "accordion")
+        workspace.layoutOverride = .dwindle
+        workspace.rootTilingContainer.layout = .accordion
+        workspace.openWindow(id: 1)
+        workspace.openWindow(id: 2)
+        try await workspace.layoutWorkspace()
+        #expect(workspace.rootTilingContainer.layout == .accordion, "the user's accordion stays as the wrapper")
+        expectRect(workspace.tilingFrames[0].rect, rect(0, 0, 960, 1080), "1 is the left half, not a tab")
+        expectRect(workspace.tilingFrames[1].rect, rect(960, 0, 960, 1080))
+
+        // A rebuild starts the spiral from a tiles root
+        workspace.openWindow(id: 3)
+        workspace.layoutOverride = .tiles
+        workspace.applyLayout()
+        workspace.rootTilingContainer.layout = .accordion
+        workspace.layoutOverride = .dwindle
+        workspace.applyLayout()
+        try await workspace.layoutWorkspace()
+        #expect(workspace.rootTilingContainer.layout == .tiles)
+        expectRect(workspace.tilingFrames[0].rect, rect(0, 0, 960, 1080))
+        expectRect(workspace.tilingFrames[1].rect, rect(960, 0, 960, 540))
+        expectRect(workspace.tilingFrames[2].rect, rect(960, 540, 960, 540))
+    }
+
+    @Test func rebuildKeepsTheFocusedWindowMostRecent() async throws {
+        let workspace = Workspace.get(byName: "mru")
+        #expect(workspace.focusWorkspace())
+        let first = workspace.openWindow(id: 1)
+        workspace.openWindow(id: 2)
+        workspace.openWindow(id: 3)
+        try await workspace.layoutWorkspace()
+        #expect(first.focusWindow())
+
+        await run("workspace-layout dwindle")
+        #expect(workspace.mostRecentWindowRecursive === first, "re-binding every window during the rebuild must not make the last one most recent")
+        let fourth = workspace.openWindow(id: 4)
+        try await workspace.layoutWorkspace()
+        expectRect(workspace.tilingFrames[0].rect, rect(0, 0, 960, 540), "the next window splits the focused cell, not the last one")
+        expectRect(workspace.tilingFrames[3].rect, rect(0, 540, 960, 540))
+
+        #expect(workspace.mostRecentWindowRecursive === fourth, "a new window is the most recent one")
+        await run("workspace-layout floating")
+        await run("workspace-layout tiles")
+        #expect(workspace.mostRecentWindowRecursive === fourth, "and stays so through a round trip via floating")
+    }
+
+    @Test func layoutFloatingIsTheWindowsOwnChoiceAndLayoutTilingIsRefusedInAFloatingWorkspace() async throws {
+        let workspace = Workspace.get(byName: "choice")
+        #expect(workspace.focusWorkspace())
+        let first = workspace.openWindow(id: 1)
+        let second = workspace.openWindow(id: 2)
+        try await workspace.layoutWorkspace()
+        await run("workspace-layout floating")
+        #expect(first.floatedByLayout && second.floatedByLayout)
+
+        #expect(first.focusWindow())
+        await run("layout floating") // Already floating, so a no-op for the tree, but the window floats by choice now
+        #expect(!first.floatedByLayout)
+        #expect(second.floatedByLayout)
+        let stderr = await run("layout floating tiling", expectSuccess: false)
+        #expect(stderr.first?.contains("floating layout") == true, "\(stderr)")
+        #expect(first.isFloating && second.isFloating)
+
+        await run("workspace-layout tiles")
+        #expect(workspace.floatingWindowIds == [1], "1 keeps floating, it asked for it")
+        #expect(workspace.tilingWindowIds == [2])
+    }
+
+    @Test func runtimeOverrideSurvivesGarbageCollectionOfAnEmptyWorkspace() async {
+        await run("workspace-layout --workspace scratch dwindle")
+        Workspace.garbageCollectUnusedWorkspaces()
+        #expect(!Workspace.all.contains { $0.name == "scratch" }, "the empty workspace is collected as usual")
+        #expect(Workspace.get(byName: "scratch").layout == .dwindle, "but the command's choice holds until reload-config")
+
+        let stderr = await run("workspace-layout --workspace scratch dwindle")
+        #expect(stderr == ["Workspace 'scratch' already uses the dwindle layout"])
     }
 
     @Test func workspaceLayoutCommandSwitchesAndCyclesLayouts() async throws {
@@ -288,7 +371,7 @@ struct WorkspaceLayoutTest {
         let changed = Workspace.get(byName: "changed")
         for id: UInt32 in 1 ... 4 { changed.openWindow(id: id) }
         changed.layoutOverride = .floating
-        changed.applyLayout(.floating)
+        changed.applyLayout()
         let same = Workspace.get(byName: "same")
         same.layoutOverride = .dwindle
         for id: UInt32 in 1 ... 3 { same.openWindow(id: id + 10) }
@@ -302,7 +385,6 @@ struct WorkspaceLayoutTest {
         #expect(changed.layoutOverride == nil)
         #expect(changed.layout == .dwindle)
         #expect(changed.tilingWindowIds == [1, 2, 3, 4])
-        #expect(changed.windowsFloatedByLayout == [])
         try await changed.layoutWorkspace()
         expectRect(changed.tilingFrames[3].rect, rect(1440, 540, 480, 540), "tiled back as a spiral")
 
@@ -330,10 +412,18 @@ struct WorkspaceLayoutTest {
         let floating = Workspace.get(byName: "floating")
         floating.layoutOverride = .floating
         #expect(moveWindowToWorkspace(moved, floating, CmdIoImpl.emptyStdinIgnoringOut, focusFollowsWindow: false, failIfNoop: false) == .succ)
+        try await floating.layoutWorkspace()
         #expect(moved.isFloating)
+        #expect(moved.floatedByLayout)
         #expect(floating.floatingWindowIds == [9])
-        #expect(floating.windowsFloatedByLayout == [9])
         #expect(dwindle.tilingWindowIds == [1, 2])
+
+        // Back to a tiles workspace: the window floated only because of the layout, so it tiles again there
+        #expect(moveWindowToWorkspace(moved, source, CmdIoImpl.emptyStdinIgnoringOut, focusFollowsWindow: false, failIfNoop: false) == .succ)
+        #expect(moved.isFloating, "move-node-to-workspace keeps a floating window floating")
+        try await source.layoutWorkspace()
+        #expect(source.tilingWindowIds == [9], "the layout pass tiles it")
+        #expect(!moved.floatedByLayout)
     }
 
     @Test func estimatedVirtualRectMatchesLayoutRecursive() async throws {

@@ -15,9 +15,11 @@ struct WorkspaceLayoutCommand: Command {
                 case .next: current.next
             }
         }
-        guard let next = layouts.first(where: { $0 != current }) else { return .succ } // Already there
+        guard let next = layouts.first(where: { $0 != current }) else {
+            return .succ(io.err("Workspace '\(workspace.name)' already uses the \(current.rawValue) layout"))
+        }
         workspace.layoutOverride = next
-        workspace.applyLayout(next)
+        workspace.applyLayout()
         return .succ
     }
 }

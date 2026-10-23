@@ -6,10 +6,13 @@ import Common
 // The mode is a policy over the existing tree, not a new container algorithm:
 // - it decides where a new tiling window is bound (`bindingDataForNewTilingWindow`),
 // - it rebuilds the tree once when the mode changes (`applyLayout`),
+// - it keeps the floating layout's invariant before every layout pass (`reconcileFloatingLayout`),
 // - layoutRecursive stays untouched.
 
-private let layoutOverrideKey = TreeNodeUserDataKey<WorkspaceLayout>(key: "workspaceLayout.override")
-private let windowsFloatedByLayoutKey = TreeNodeUserDataKey<[UInt32]>(key: "workspaceLayout.floatedWindowIds")
+/// Set by the `workspace-layout` command, until reload-config. Keyed by name rather than stored on the Workspace
+/// object, so an override on an empty workspace survives the workspace being garbage collected and recreated
+@MainActor private var workspaceLayoutOverrides: [String: WorkspaceLayout] = [:]
+private let floatedByLayoutKey = TreeNodeUserDataKey<Bool>(key: "workspaceLayout.floatedByLayout")
 
 extension Workspace {
     /// The effective layout: the last `workspace-layout` command wins, then the `[workspace-layout]` table, then
@@ -18,72 +21,90 @@ extension Workspace {
         layoutOverride ?? config.workspaceLayouts[name] ?? config.defaultWorkspaceLayout
     }
 
-    /// Set by the `workspace-layout` command. reload-config clears it, so the config stays the source of truth
-    var layoutOverride: WorkspaceLayout? {
-        get { getUserData(key: layoutOverrideKey) }
-        set {
-            if let newValue { putUserData(key: layoutOverrideKey, data: newValue) } else { cleanUserData(key: layoutOverrideKey) }
-        }
+    @MainActor var layoutOverride: WorkspaceLayout? {
+        get { workspaceLayoutOverrides[name] }
+        set { workspaceLayoutOverrides[name] = newValue }
     }
 
-    /// Ids of the windows the floating layout floated (on the switch and as they arrived), in tree order.
-    /// Leaving the floating layout tiles exactly these. Windows that floated for their own reasons (dialogs,
-    /// `layout floating`) keep floating
-    var windowsFloatedByLayout: [UInt32] {
-        get { getUserData(key: windowsFloatedByLayoutKey) ?? [] }
-        set { putUserData(key: windowsFloatedByLayoutKey, data: newValue) }
-    }
-
-    /// Rebuilds the workspace tree for `target`. Callers decide whether `target` also becomes `layoutOverride`.
+    /// Rebuilds the workspace tree for `layout`. Callers change `layoutOverride` or the config first.
     /// - tiles: flattens every tiling window into the root container (like `flatten-workspace-tree`)
     /// - dwindle: re-inserts the tiling windows in tree order with the dwindle policy, so the result is the spiral
     ///   the user would have gotten by opening them one by one
-    /// - floating: binds every tiling window to the floating container, keeping their frames, and records them
-    /// Leaving floating first tiles the recorded windows (in recorded order) with the target policy.
+    /// - floating: floats every tiling window where it stands
+    /// Leaving floating first tiles the windows the floating layout floated, in the order they floated.
+    /// The most recent window stays the most recent one, so the next new window still splits the focused cell
     @MainActor
-    func applyLayout(_ target: WorkspaceLayout) {
-        let tiling = rootTilingContainer.allLeafWindowsRecursive
-        if target == .floating {
-            for window in tiling {
-                window.lastFloatingSize = window.lastAppliedLayoutPhysicalRect?.size ?? window.lastFloatingSize
-                window.bindAsFloatingWindow(to: self)
-                if !windowsFloatedByLayout.contains(window.windowId) {
-                    windowsFloatedByLayout.append(window.windowId)
-                }
+    func applyLayout() {
+        let mru = mostRecentWindowRecursive
+        if layout == .floating {
+            floatTilingWindows()
+        } else {
+            let windows = rootTilingContainer.allLeafWindowsRecursive + floatingWindows.filter(\.floatedByLayout)
+            for window in windows {
+                window.unbindFromParent()
+                window.floatedByLayout = false
             }
+            // Only empty containers are left in the root. Dwindle counts the root's children, so they go now rather
+            // than at the next normalization
+            for container in rootTilingContainer.children {
+                container.unbindFromParent()
+            }
+            if layout == .dwindle {
+                rootTilingContainer.layout = .tiles
+            }
+            for window in windows {
+                let data = layout == .tiles
+                    ? BindingData(parent: rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
+                    : dwindleBindingData()
+                window.bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
+            }
+        }
+        mru?.markAsMostRecentChild()
+    }
+
+    /// The floating layout is an invariant kept before every layout pass, not only when the layout changes: in a
+    /// floating workspace no window tiles, and in any other workspace no window floats because of a layout.
+    /// New windows, `move-node-to-workspace`, mouse drags and windows leaving a macOS native state all land in the
+    /// tiling tree (or the floating container) first and are corrected here, so there is one place to get right
+    @MainActor
+    func reconcileFloatingLayout() {
+        if layout == .floating {
+            floatTilingWindows()
             return
         }
-        let returning = windowsFloatedByLayout.compactMap { id in floatingWindows.first { $0.windowId == id } }
-        windowsFloatedByLayout = []
-        let windows = tiling + returning
-        for window in windows {
+        for window in floatingWindows where window.floatedByLayout {
             window.unbindFromParent()
-        }
-        // Only empty containers are left in the root. Dwindle counts the root's children, so they go now rather
-        // than at the next normalization
-        for container in rootTilingContainer.children {
-            container.unbindFromParent()
-        }
-        for window in windows {
-            let data = target == .tiles
-                ? BindingData(parent: rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
-                : dwindleBindingData()
+            window.floatedByLayout = false
+            let data = bindingDataForNewTilingWindow()
             window.bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
         }
     }
 
-    /// Where a new tiling window goes on this workspace. `window` is already unbound, or nil for a window that is
-    /// being registered (then only `windowId` is known).
+    /// Floats every tiling window without moving it, and marks it so that leaving the floating layout tiles it again.
+    /// Windows that float for their own reasons (dialogs, `layout floating`) aren't touched and aren't marked
+    @MainActor
+    private func floatTilingWindows() {
+        for window in rootTilingContainer.allLeafWindowsRecursive {
+            window.lastFloatingSize = window.lastAppliedLayoutPhysicalRect?.size ?? window.lastFloatingSize
+            window.bindAsFloatingWindow(to: self)
+            window.floatedByLayout = true
+        }
+        for container in rootTilingContainer.children {
+            container.unbindFromParent()
+        }
+    }
+
+    /// Where a new tiling window goes on this workspace. The window, if it exists already, is unbound.
     /// - tiles: next to the most recent window in its container (AeroSpace's behavior)
     /// - dwindle: splits the most recent window's area along its longer side: the window is wrapped in a new
     ///   container oriented by `estimatedVirtualRect`, and the new window becomes its second child
-    /// - floating: the floating container; the window id is appended to `windowsFloatedByLayout`
+    /// - floating: like tiles. The window has to land somewhere before `reconcileFloatingLayout` floats and marks
+    ///   it, because a window that is being registered has no `Window` object to mark yet
     @MainActor
-    func bindingDataForNewTilingWindow(windowId: UInt32, window: Window?) -> BindingData {
+    func bindingDataForNewTilingWindow() -> BindingData {
         switch layout {
-            case .tiles: tilesBindingData()
+            case .tiles, .floating: tilesBindingData()
             case .dwindle: dwindleBindingData()
-            case .floating: floatingBindingData(windowId: windowId)
         }
     }
 
@@ -105,9 +126,11 @@ extension Workspace {
         }
     }
 
-    /// Hyprland's dwindle: split the most recent window's area along its longer side. A lone window in its
+    /// Hyprland's dwindle: split the most recent window's area along its longer side. A lone window in a tiles
     /// container just gets a sibling and the container takes the split orientation. Otherwise the window is
-    /// wrapped in a new container that keeps its slot and weight, and the new window joins it as an equal half
+    /// wrapped in a new container that keeps its slot and weight, and the new window joins it as an equal half.
+    /// An accordion (from `layout accordion` or `default-root-container-layout`) is never used as the split
+    /// container: the wrap keeps it as the user's tab bar around the split
     @MainActor
     private func dwindleBindingData() -> BindingData {
         guard let mru = rootTilingContainer.mostRecentWindowRecursive, let parent = mru.parent as? TilingContainer else {
@@ -115,7 +138,7 @@ extension Workspace {
         }
         let rect = mru.estimatedVirtualRect
         let orientation: Orientation = rect.width >= rect.height ? .h : .v
-        if parent.children.count == 1 {
+        if parent.children.count == 1 && parent.layout == .tiles {
             parent.setOrientationOnly(orientation)
             return BindingData(parent: parent, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
         }
@@ -126,20 +149,24 @@ extension Workspace {
         mru.bind(to: container, adaptiveWeight: WEIGHT_AUTO, index: 0)
         return BindingData(parent: container, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
     }
+}
 
-    @MainActor
-    private func floatingBindingData(windowId: UInt32) -> BindingData {
-        if !windowsFloatedByLayout.contains(windowId) {
-            windowsFloatedByLayout.append(windowId)
+extension Window {
+    /// True while the window floats only because its workspace layout is floating. `layout floating` clears it:
+    /// the window then floats by its own choice and stays floating when the workspace layout changes
+    var floatedByLayout: Bool {
+        get { getUserData(key: floatedByLayoutKey) ?? false }
+        set {
+            if newValue { putUserData(key: floatedByLayoutKey, data: true) } else { _ = cleanUserData(key: floatedByLayoutKey) }
         }
-        return BindingData(parent: floatingWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
     }
 }
 
 extension TreeNode {
     /// The rect this node would get from layoutRecursive, computed from the tree alone (weights, orientations,
     /// accordion), ignoring gaps. Used where the last applied rect is stale or missing: hidden workspaces and
-    /// rebuilds between layout passes
+    /// rebuilds between layout passes. Gaps are ignored on purpose: Hyprland's dwindle picks the split axis from
+    /// the node box before gaps too
     @MainActor
     var estimatedVirtualRect: Rect {
         if let workspace = self as? Workspace {
@@ -166,10 +193,12 @@ extension TreeNode {
 /// effective layout changed, so a save from the Layouts pane takes effect immediately
 @MainActor
 func syncWorkspaceLayoutsAfterConfigReload(layoutsBeforeReload: [(workspace: Workspace, layout: WorkspaceLayout)]) {
-    for (workspace, before) in layoutsBeforeReload {
-        workspace.layoutOverride = nil
-        if workspace.layout != before {
-            workspace.applyLayout(workspace.layout)
-        }
+    workspaceLayoutOverrides = [:]
+    var rebuilt = false
+    for (workspace, before) in layoutsBeforeReload where workspace.layout != before {
+        workspace.applyLayout()
+        rebuilt = true
     }
+    // The lock-screen cache remembers trees; a rebuilt one must not come back on unlock
+    if rebuilt { resetClosedWindowsCache() }
 }

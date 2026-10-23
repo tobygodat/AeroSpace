@@ -39,7 +39,7 @@ func moveWindowToWorkspace(_ window: Window, _ targetWorkspace: Workspace, _ io:
     }
     if !window.isFloating && targetWorkspace.layout != .tiles {
         window.unbindFromParent()
-        let data = targetWorkspace.bindingDataForNewTilingWindow(windowId: window.windowId, window: window)
+        let data = targetWorkspace.bindingDataForNewTilingWindow()
         window.bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
     } else {
         let targetContainer: NonLeafTreeNodeObject = window.isFloating
