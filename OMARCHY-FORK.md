@@ -144,6 +144,35 @@ With Command Line Tools 27, build and test against the 26.5 SDK (the 27 SDK's Sw
 `-Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing` to
 `./test-keybinding-editor.sh`.
 
+## Workspace layouts: tiles, dwindle, floating. Built; not yet tried inside the running WM
+
+Each workspace has a layout. **Tiles** is upstream AeroSpace (new windows join the focused window's container).
+**Dwindle** is Hyprland's default: a new window splits the focused window along its longer side, so windows spiral.
+**Floating** floats every window; switching back tiles exactly the windows the layout floated, and leaves dialogs
+and `layout floating` windows alone. `workspace-layout next` cycles tiles → dwindle → floating, and the Omarchy
+presets bind it to Super ⇧ T. Settings → **Layouts** picks the default, adds per-workspace overrides and records the
+cycle shortcut; Save rewrites only those lines of the config and reloads.
+
+```toml
+default-workspace-layout = 'dwindle'   # tiles (default) | dwindle | floating
+
+[workspace-layout]
+3 = 'floating'                          # per-workspace override
+```
+
+| File | What |
+|---|---|
+| `Sources/Common/model/WorkspaceLayout.swift` | The enum and the `next` cycle |
+| `Sources/AppBundle/tree/WorkspaceLayout.swift` | Where new windows go per layout, `applyLayout` (rebuilds the tree), re-apply after `reload-config` |
+| `Sources/AppBundle/command/impl/WorkspaceLayoutCommand.swift` | `workspace-layout [--workspace <name>] (tiles\|dwindle\|floating\|next)...` |
+| `Sources/AppBundle/config/parseWorkspaceLayout.swift`, `editableWorkspaceLayouts.swift` | Parse the two keys; minimal-diff rewrite for the pane |
+| `Sources/AppBundle/ui/settings/LayoutsPane.swift`, `LayoutsPaneModel.swift` | The Settings pane (`--pane layouts` in the preview harness) |
+| `Sources/WorkspaceLayoutTests/` | swift-testing suite with ASCII frame diagrams; run `./test-workspace-layouts.sh` |
+| `docs/aerospace-workspace-layout.adoc`, `docs/guide.adoc` | Command and config docs |
+
+Scrolling (PaperWM/niri style) is designed but not built: off-view columns can be parked with a 1 px sliver on
+screen, the same trick `hideInCorner` uses, since macOS only pulls a window back when none of it is visible.
+
 ## Phase 2: Launcher (replaces Raycast for apps)
 
 - New command `launcher`, bound to Super+Space by default.

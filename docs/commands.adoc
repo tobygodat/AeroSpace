@@ -329,3 +329,10 @@ include::aerospace-workspace-back-and-forth.adoc[tags=synopsis]
 ----
 include::aerospace-workspace-back-and-forth.adoc[tags=purpose]
 include::aerospace-workspace-back-and-forth.adoc[tags=body]
+
+== workspace-layout
+----
+include::aerospace-workspace-layout.adoc[tags=synopsis]
+----
+include::aerospace-workspace-layout.adoc[tags=purpose]
+include::aerospace-workspace-layout.adoc[tags=body]

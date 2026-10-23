@@ -25,6 +25,7 @@ struct KeybindingPreset: Identifiable {
         ("\(s)-q", "close"),
         ("\(s)-f", "fullscreen"),
         ("\(s)-t", "layout floating tiling"),
+        ("\(s)-shift-t", "workspace-layout next"),
         ("\(s)-j", "layout horizontal vertical"),
         ("\(s)-l", "layout tiles accordion"),
         ("\(s)-m", "macos-native-minimize"),

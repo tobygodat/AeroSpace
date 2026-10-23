@@ -31,6 +31,9 @@ struct LayoutCommand: Command {
 
         let targetDescription = args.toggleBetween.val.first(where: { !node.matchesDescription($0) })
             ?? args.toggleBetween.val.first.orDie()
+        if targetDescription == .floating, let window = target.windowOrNil {
+            window.floatedByLayout = false // Floating is the window's own choice now, whatever the workspace layout does
+        }
         if node.matchesDescription(targetDescription) {
             switch args.failIfNoop {
                 case true: return .fail
@@ -65,6 +68,9 @@ struct LayoutCommand: Command {
                     case .floatingWindowsContainer(let container):
                         window.lastFloatingSize = (try? await window.getAxSize(.nonCancellable)) ?? window.lastFloatingSize
                         guard let workspace = container.nodeWorkspace else { return .fail(io.err(bugPrompt())) }
+                        if workspace.layout == .floating {
+                            return .fail(io.err("Workspace '\(workspace.name)' uses the floating layout, so its windows can't tile. Change it with 'workspace-layout tiles' or 'workspace-layout dwindle'"))
+                        }
                         do {
                             try await window.relayoutWindow(on: workspace, .nonCancellable, forceTile: true)
                         } catch {

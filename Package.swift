@@ -103,5 +103,13 @@ let package = Package(
             ],
             swiftSettings: swiftSettings,
         ),
+        // swift-testing suite for the workspace layouts (dwindle, floating): runs with the Command Line Tools alone
+        .testTarget(
+            name: "WorkspaceLayoutTests",
+            dependencies: [
+                .target(name: "AppBundle"),
+            ],
+            swiftSettings: swiftSettings,
+        ),
     ] + xcTestTargets,
 )

@@ -6,6 +6,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case workspaces
     case apps
     case superKey = "super-key"
+    case layouts
 
     var id: String { rawValue }
 
@@ -14,6 +15,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
             case .workspaces: "Workspaces"
             case .apps: "Apps"
             case .superKey: "Super key"
+            case .layouts: "Layouts"
         }
     }
 
@@ -23,6 +25,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
             case .workspaces: "menubar.rectangle"
             case .apps: "square.grid.2x2"
             case .superKey: "capslock"
+            case .layouts: "rectangle.split.2x2"
         }
     }
 
@@ -32,6 +35,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
             case .workspaces: WorkspacesPane(editor: editor)
             case .apps: AppShortcutsPane(editor: editor)
             case .superKey: SuperKeyPane(editor: editor)
+            case .layouts: LayoutsPane(editor: editor)
         }
     }
 }

@@ -584,6 +584,13 @@ struct KeybindingActionMenu: View {
                 Button("Toggle floating / tiling") { set("layout floating tiling") }
                 Button("Toggle split direction") { set("layout horizontal vertical") }
                 Button("Toggle tiles / accordion") { set("layout tiles accordion") }
+                Menu("Workspace layout") {
+                    Button("Cycle") { set("workspace-layout next") }
+                    Divider()
+                    ForEach(WorkspaceLayout.allCases, id: \.self) { layout in
+                        Button(layout.title) { set("workspace-layout \(layout.rawValue)") }
+                    }
+                }
                 Button("Minimize") { set("macos-native-minimize") }
                 Divider()
                 Button("Grow") { set("resize smart +50") }

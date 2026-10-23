@@ -141,6 +141,8 @@ private let configParser: [String: any ParserProtocol<Config>] = [
 
     "default-root-container-layout": Parser(\.defaultRootContainerLayout, parseLayout),
     "default-root-container-orientation": Parser(\.defaultRootContainerOrientation, parseDefaultContainerOrientation),
+    "default-workspace-layout": Parser(\.defaultWorkspaceLayout, parseWorkspaceLayout),
+    "workspace-layout": Parser(\.workspaceLayouts, parseWorkspaceLayouts),
 
     "start-at-login": Parser(\.startAtLogin, parseBool),
     "auto-reload-config": Parser(\.autoReloadConfig, parseBool),

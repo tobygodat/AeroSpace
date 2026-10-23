@@ -45,6 +45,12 @@ extension TilingContainer {
         }
     }
 
+    /// Sets this container's orientation alone. `changeOrientation` also flips the ancestors when
+    /// enable-normalization-opposite-orientation-for-nested-containers is on
+    func setOrientationOnly(_ targetOrientation: Orientation) {
+        _orientation = targetOrientation
+    }
+
     func normalizeOppositeOrientationForNestedContainers() {
         if orientation == (parent as? TilingContainer)?.orientation {
             _orientation = orientation.opposite
