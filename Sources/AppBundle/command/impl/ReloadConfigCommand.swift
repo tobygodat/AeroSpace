@@ -51,8 +51,10 @@ struct ReloadConfigResult {
     if parseResult.allowReloadConfig && !args.dryRun {
         TrayMenuModel.shared.lastReloadConfigContainedWarnings = containsWarnings
         resetHotKeys()
+        let layoutsBeforeReload = Workspace.all.map { (workspace: $0, layout: $0.layout) }
         config = parseResult.config
         configUrl = result.configUrl
+        syncWorkspaceLayoutsAfterConfigReload(layoutsBeforeReload: layoutsBeforeReload)
         await activateMode_nonCancellable(activeMode)
         syncStartAtLogin()
         syncFocusFollowsMouse(config)

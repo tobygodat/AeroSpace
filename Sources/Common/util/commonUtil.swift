@@ -148,7 +148,8 @@ public func check(
     }
 }
 
-public var isUnitTest: Bool { NSClassFromString("XCTestCase") != nil }
+/// True under XCTest and under swift-testing, whose runner gets the test bundle (`<target>.xctest`) as an argument
+public let isUnitTest: Bool = NSClassFromString("XCTestCase") != nil || ProcessInfo.processInfo.arguments.contains { $0.contains(".xctest") }
 
 extension CaseIterable where Self: RawRepresentable, RawValue == String {
     public static var cliArgsCases: [String] { allCases.map(\.rawValue) }

@@ -1,0 +1,64 @@
+= aerospace-workspace-layout(1)
+include::util/man-attributes.adoc[]
+:manname: aerospace-workspace-layout
+// tag::purpose[]
+:manpurpose: Change the layout of a whole workspace: tiles, dwindle or floating
+// end::purpose[]
+
+// =========================================================== Synopsis
+== Synopsis
+[verse]
+// tag::synopsis[]
+aerospace workspace-layout [-h|--help] [--workspace <workspace>] (<target-layout>)...
+
+// end::synopsis[]
+
+// =========================================================== Description
+== Description
+
+// tag::body[]
+{manpurpose}
+
+The workspace layout decides where new windows go and rebuilds the workspace tree when it changes:
+
+* `tiles` - AeroSpace's tree of tiles and accordions. New windows join the focused window's container
+* `dwindle` - Hyprland's default. A new window splits the focused window's area along its longer side, so the windows spiral
+* `floating` - Every window floats where it stands. Switching away tiles the windows that this layout floated;
+  dialogs and windows floated with `layout floating` keep floating. `layout tiling` is refused in a floating workspace
+
+The layout set by this command lasts until `reload-config`, which applies `default-workspace-layout` and the
+`[workspace-layout]` table from the config again. The Layouts pane of the Keybindings window edits both.
+
+// =========================================================== Options
+include::./util/conditional-options-header.adoc[]
+
+-h, --help:: Print help
+
+--workspace <workspace>::
+include::./util/workspace-flag-desc.adoc[]
+
+// =========================================================== Arguments
+include::./util/conditional-arguments-header.adoc[]
+
+<target-layout>::
+Possible values: `tiles|dwindle|floating|next`.
+`next` cycles to the following layout and can't be combined with other values.
++
+If several `<target-layout>` are supplied, then the first one that doesn't describe the current layout is applied.
+
+// =========================================================== Examples
+include::./util/conditional-examples-header.adoc[]
+
+* Cycle the layout of the focused workspace: +
+`aerospace workspace-layout next`
+
+* Toggle between `dwindle` and `floating`: +
+`aerospace workspace-layout dwindle floating`
+
+* Make workspace 2 float: +
+`aerospace workspace-layout --workspace 2 floating`
+
+// end::body[]
+
+// =========================================================== Footer
+include::./util/man-footer.adoc[]

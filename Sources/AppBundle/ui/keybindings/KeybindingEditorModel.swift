@@ -19,12 +19,12 @@ final class KeybindingEditorModel: ObservableObject {
     @Published private(set) var savedModes: [EditableMode] = []
     @Published private(set) var configFileUrl: URL? = nil
 
-    private var loadedText: String = ""
+    private(set) var loadedText: String = ""
     private var keyMapping: [String: Key] = KeyMapping().resolve()
     private var keyMonitor: Any? = nil
     private var didBackUp: Bool = false
     private let configUrlProvider: @MainActor () -> Result<URL, String>
-    private let afterSave: @MainActor () async -> Void
+    let afterSave: @MainActor () async -> Void
 
     init(configUrlProvider: @escaping @MainActor () -> Result<URL, String>, afterSave: @escaping @MainActor () async -> Void) {
         self.configUrlProvider = configUrlProvider
@@ -274,12 +274,7 @@ final class KeybindingEditorModel: ObservableObject {
             return
         }
         do {
-            if !didBackUp {
-                let backupUrl = resolvedUrl.appendingPathExtension("bak-keybindings")
-                try? FileManager.default.removeItem(at: backupUrl)
-                try FileManager.default.copyItem(at: resolvedUrl, to: backupUrl)
-                didBackUp = true
-            }
+            try backUpConfigOnce(resolvedUrl)
             try newText.write(to: resolvedUrl, atomically: true, encoding: .utf8)
         } catch {
             status = ("Couldn't save: \(error.localizedDescription)", true)
@@ -301,6 +296,15 @@ final class KeybindingEditorModel: ObservableObject {
         keyMapping = parsed.config.keyMapping.resolve()
         status = ("Saved to \(url.displayPath)", false)
         await afterSave()
+    }
+
+    /// Keeps the config as it was before the first GUI write of this run at `<config>.bak-keybindings`
+    func backUpConfigOnce(_ resolvedUrl: URL) throws {
+        if didBackUp { return }
+        let backupUrl = resolvedUrl.appendingPathExtension("bak-keybindings")
+        try? FileManager.default.removeItem(at: backupUrl)
+        try FileManager.default.copyItem(at: resolvedUrl, to: backupUrl)
+        didBackUp = true
     }
 }
 
