@@ -33,9 +33,6 @@ final class KeybindingEditorModel: ObservableObject {
         self.afterSave = afterSave
     }
 
-    /// `super-key` of the loaded config
-    private(set) var superKey: SuperKey = Config().superKey
-
     var isDirty: Bool { modes != savedModes }
 
     /// Number of added, changed and deleted bindings since the last load or save
@@ -188,6 +185,9 @@ final class KeybindingEditorModel: ObservableObject {
     }
 
     // MARK: Recording
+
+    /// `super-key` of the loaded config. Shortcuts are compared and recorded as the keys it stands for
+    private(set) var superKey: SuperKey = Config().superKey
 
     func toggleRecording(_ id: UUID) {
         if recordingBindingId == id {
