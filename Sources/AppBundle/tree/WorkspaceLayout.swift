@@ -13,6 +13,7 @@ import Common
 /// object, so an override on an empty workspace survives the workspace being garbage collected and recreated
 @MainActor private var workspaceLayoutOverrides: [String: WorkspaceLayout] = [:]
 private let floatedByLayoutKey = TreeNodeUserDataKey<Bool>(key: "workspaceLayout.floatedByLayout")
+private let scrollOffsetKey = TreeNodeUserDataKey<CGFloat>(key: "workspaceLayout.scrollOffset")
 
 extension Workspace {
     /// The effective layout: the last `workspace-layout` command wins, then the `[workspace-layout]` table, then
@@ -26,10 +27,18 @@ extension Workspace {
         set { workspaceLayoutOverrides[name] = newValue }
     }
 
+    /// Scrolling layout: how far the strip of columns is scrolled, in points from its left edge. `layoutScrolling`
+    /// moves it only as much as needed to keep the focused column in view
+    var scrollOffset: CGFloat {
+        get { getUserData(key: scrollOffsetKey) ?? 0 }
+        set { putUserData(key: scrollOffsetKey, data: newValue) }
+    }
+
     /// Rebuilds the workspace tree for `layout`. Callers change `layoutOverride` or the config first.
     /// - tiles: flattens every tiling window into the root container (like `flatten-workspace-tree`)
     /// - dwindle: re-inserts the tiling windows in tree order with the dwindle policy, so the result is the spiral
     ///   the user would have gotten by opening them one by one
+    /// - scrolling: one column per window, in tree order, at the configured column width, scrolled to the start
     /// - floating: floats every tiling window where it stands
     /// Leaving floating first tiles the windows the floating layout floated, in the order they floated.
     /// The most recent window stays the most recent one, so the next new window still splits the focused cell
@@ -52,10 +61,16 @@ extension Workspace {
             if layout == .dwindle {
                 rootTilingContainer.layout = .tiles
             }
+            if layout == .scrolling {
+                die("TODO(AERO-4 scrolling): reset the root to a horizontal tiles strip and scrollOffset to 0")
+            }
             for window in windows {
-                let data = layout == .tiles
-                    ? BindingData(parent: rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
-                    : dwindleBindingData()
+                let data = switch layout {
+                    case .tiles: BindingData(parent: rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
+                    case .dwindle: dwindleBindingData()
+                    case .scrolling: scrollingBindingData()
+                    case .floating: die("handled above")
+                }
                 window.bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
             }
         }
@@ -98,6 +113,7 @@ extension Workspace {
     /// - tiles: next to the most recent window in its container (AeroSpace's behavior)
     /// - dwindle: splits the most recent window's area along its longer side: the window is wrapped in a new
     ///   container oriented by `estimatedVirtualRect`, and the new window becomes its second child
+    /// - scrolling: a new column right after the most recent window's column, `scrolling-column-width` wide
     /// - floating: like tiles. The window has to land somewhere before `reconcileFloatingLayout` floats and marks
     ///   it, because a window that is being registered has no `Window` object to mark yet
     @MainActor
@@ -105,7 +121,16 @@ extension Workspace {
         switch layout {
             case .tiles, .floating: tilesBindingData()
             case .dwindle: dwindleBindingData()
+            case .scrolling: scrollingBindingData()
         }
+    }
+
+    /// Scrolling: columns are the root's children (a window, or a vertical tiles container of windows), their
+    /// width is their horizontal weight in points. The new window becomes a column right after the column of the
+    /// most recent window, `config.scrollingColumnWidthPercent` of the workspace width wide
+    @MainActor
+    private func scrollingBindingData() -> BindingData {
+        die("TODO(AERO-4 scrolling): scrollingBindingData")
     }
 
     @MainActor

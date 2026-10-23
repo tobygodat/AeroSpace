@@ -6,6 +6,7 @@ extension WorkspaceLayout {
         switch self {
             case .tiles: "Tiles"
             case .dwindle: "Dwindle"
+            case .scrolling: "Scrolling"
             case .floating: "Floating"
         }
     }
@@ -14,6 +15,7 @@ extension WorkspaceLayout {
         switch self {
             case .tiles: "AeroSpace's tiles and accordions. New windows join the focused window's container."
             case .dwindle: "Hyprland's default. A new window splits the focused window along its longer side."
+            case .scrolling: "Columns on a strip wider than the screen. It scrolls to keep the focused one in view."
             case .floating: "Every window floats. Switching back tiles them again."
         }
     }
@@ -372,6 +374,14 @@ private struct LayoutSchematic: View {
                             }
                         }
                     }
+                case .scrolling:
+                    HStack(spacing: gap) {
+                        cell.frame(width: size.width * 0.18)
+                        cell.frame(width: size.width * 0.42)
+                        cell.frame(width: size.width * 0.42)
+                    }
+                    .frame(width: size.width, height: size.height, alignment: .trailing)
+                    .clipped()
                 case .floating:
                     ZStack(alignment: .topLeading) {
                         cell

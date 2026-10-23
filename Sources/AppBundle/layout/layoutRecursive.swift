@@ -1,4 +1,5 @@
 import AppKit
+import Common
 
 extension Workspace {
     @MainActor
@@ -6,10 +7,24 @@ extension Workspace {
         reconcileFloatingLayout()
         if isEffectivelyEmpty { return }
         let rect = workspaceMonitor.visibleRectPaddedByOuterGaps
+        if layout == .scrolling {
+            try await layoutScrolling(rect, LayoutContext(self))
+            return
+        }
         // If monitors are aligned vertically and the monitor below has smaller width, then macOS may not allow the
         // window on the upper monitor to take full width. rect.height - 1 resolves this problem
         // But I also faced this problem in monitors horizontal configuration. ¯\_(ツ)_/¯
         try await layoutRecursive(rect.topLeftCorner, width: rect.width, height: rect.height - 1, virtual: rect, LayoutContext(self))
+    }
+
+    /// Scrolling layout. The root's children are columns on a strip that can be wider than `rect`; `scrollOffset`
+    /// is moved just enough to keep the focused column in view. Columns in view are laid out at real coordinates
+    /// with `layoutRecursive` (so fullscreen, gaps and columns' own tiles/accordion all behave); columns out of
+    /// view are parked at the monitor's edge with one point visible, since macOS pulls a window back on screen
+    /// only when nothing of it is visible. Floating windows are laid out as usual
+    @MainActor
+    fileprivate func layoutScrolling(_ rect: Rect, _ context: LayoutContext) async throws {
+        die("TODO(AERO-4 scrolling): layoutScrolling")
     }
 }
 
