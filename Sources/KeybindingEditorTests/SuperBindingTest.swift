@@ -60,6 +60,16 @@ private func binding(_ result: ParseConfigResult, _ key: String) -> HotkeyBindin
         #expect(clash.first?.contains("are the same keys while super-key = 'alt'") == true)
     }
 
+    /// One Carbon hotkey for ⌥B however a mode writes it, so switching modes never registers it twice
+    @Test func superIsItsModifierWhenSuperIsAModifier() {
+        let toml = "[mode.main.binding]\nalt-b = 'workspace 1'\n[mode.service.binding]\nsuper-b = 'workspace 2'"
+        let parsed = config("super-key = 'alt'\n" + toml)
+        #expect(parsed.errors == [])
+        #expect(Array(parsed.config.modes["service"]!.bindings.keys) == ["alt-b"])
+        #expect(parsed.config.modes["service"]!.bindings["alt-b"]?.descriptionWithKeyNotation == "super-b")
+        #expect(Array(config(toml).config.modes["service"]!.bindings.keys) == ["super-b"])
+    }
+
     @Test func usesSuperModifier() {
         #expect(!config("[mode.main.binding]\nalt-b = 'workspace 1'").config.usesSuperModifier)
         #expect(config("[mode.main.binding]\nalt-b = 'workspace 1'\n[mode.service.binding]\nsuper-r = 'reload-config'").config.usesSuperModifier)
@@ -248,7 +258,7 @@ final class SuperKeyEditorTest {
 
     @Test func paneConvertsAndUndoes() async throws {
         let model = try makeModel()
-        let pane = SuperKeyPaneModel(editor: model)
+        let pane = SuperKeyPaneModel.of(model)
         await pane.convertOptionBindings()
         #expect(pane.status?.isError == false)
         #expect(fileText == editorConfig.replacingOccurrences(of: "alt-", with: "super-"))
@@ -262,7 +272,7 @@ final class SuperKeyEditorTest {
 
     @Test func paneWritesTheSetting() async throws {
         let model = try makeModel()
-        let pane = SuperKeyPaneModel(editor: model)
+        let pane = SuperKeyPaneModel.of(model)
         await pane.select(.rightCmd)
         #expect(model.superKeySetting == .rightCmd)
         #expect(fileText == "config-version = 2\nsuper-key = 'right-cmd'\n" + editorConfig.dropFirst("config-version = 2\n".count))
@@ -273,7 +283,7 @@ final class SuperKeyEditorTest {
     @Test func paneRefusesWhileBindingsHaveUnsavedEdits() async throws {
         let model = try makeModel()
         model.modes[0].bindings[0].commands = ["fullscreen"]
-        let pane = SuperKeyPaneModel(editor: model)
+        let pane = SuperKeyPaneModel.of(model)
         await pane.select(.rightCmd)
         #expect(pane.status?.isError == true)
         #expect(fileText == editorConfig)

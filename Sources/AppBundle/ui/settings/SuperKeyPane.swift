@@ -9,11 +9,20 @@ final class SuperKeyPaneModel: ObservableObject {
     @Published private(set) var pendingSuperKey: SuperKey? = nil
     /// The bindings the last conversion moved to Super, for Undo
     @Published private(set) var converted: [ModeBindingKey]? = nil
+    @Published private(set) var isConverting = false
 
     let editor: KeybindingEditorModel
 
-    init(editor: KeybindingEditorModel) {
+    private init(editor: KeybindingEditorModel) {
         self.editor = editor
+    }
+
+    /// One per editor, so Undo is still there after looking at the converted bindings
+    static func of(_ editor: KeybindingEditorModel) -> SuperKeyPaneModel {
+        if let model = paneModels[ObjectIdentifier(editor)] { return model }
+        let model = SuperKeyPaneModel(editor: editor)
+        paneModels[ObjectIdentifier(editor)] = model
+        return model
     }
 
     var selected: SuperKey { pendingSuperKey ?? editor.superKeySetting }
@@ -21,11 +30,14 @@ final class SuperKeyPaneModel: ObservableObject {
     func select(_ superKey: SuperKey) async {
         if superKey == selected { return }
         pendingSuperKey = superKey
-        defer { pendingSuperKey = nil }
+        defer { if pendingSuperKey == superKey { pendingSuperKey = nil } }
         report(await editor.editConfig { rewriteSuperKeySetting($0, superKey) }, success: "\(superKey.title) is Super")
     }
 
     func convertOptionBindings() async {
+        if isConverting { return }
+        isConverting = true
+        defer { isConverting = false }
         var swap: ModifierSwap? = nil
         let result = await editor.editConfig { text in
             readEditableModes(text).flatMap { modes in
@@ -48,14 +60,24 @@ final class SuperKeyPaneModel: ObservableObject {
     }
 
     func undoConversion() async {
-        guard let converted else { return }
+        guard let converted, !isConverting else { return }
+        isConverting = true
+        defer { isConverting = false }
+        var swap: ModifierSwap? = nil
         let result = await editor.editConfig { text in
             readEditableModes(text).flatMap { modes in
-                rewriteBindings(text, swapBindingModifier("super", "alt", in: modes, only: Set(converted)).modes)
+                let it = swapBindingModifier("super", "alt", in: modes, only: Set(converted))
+                swap = it
+                return rewriteBindings(text, it.modes)
             }
         }
-        if case .success = result { self.converted = nil }
-        report(result, success: "Back to ⌥")
+        guard let swap, case .success = result else {
+            report(result, success: "")
+            return
+        }
+        self.converted = swap.skipped.isEmpty ? nil : swap.skipped
+        let kept = swap.skipped.map { prettyShortcut($0.key) }.joined(separator: " ")
+        report(result, success: swap.skipped.isEmpty ? "Back to ⌥" : "Kept \(kept) on ◆: ⌥ already has those keys")
     }
 
     private func report(_ result: Result<String, String>, success: String) {
@@ -65,6 +87,8 @@ final class SuperKeyPaneModel: ObservableObject {
         }
     }
 }
+
+@MainActor private var paneModels: [ObjectIdentifier: SuperKeyPaneModel] = [:]
 
 private func count(_ n: Int) -> String { n == 1 ? "1 shortcut" : "\(n) shortcuts" }
 
@@ -102,12 +126,12 @@ extension SuperKey {
 
 struct SuperKeyPane: View {
     @ObservedObject private var editor: KeybindingEditorModel
-    @StateObject private var model: SuperKeyPaneModel
+    @ObservedObject private var model: SuperKeyPaneModel
     @ObservedObject private var runtime = SuperKeyRuntime.shared
 
     init(editor: KeybindingEditorModel) {
         self.editor = editor
-        _model = StateObject(wrappedValue: SuperKeyPaneModel(editor: editor))
+        model = SuperKeyPaneModel.of(editor)
     }
 
     var body: some View {
@@ -185,18 +209,9 @@ struct SuperKeyPane: View {
                         Text(onText(superKey))
                             .foregroundStyle(KBTheme.textSecondary)
                     case .failed(let message):
-                        StatusDot(color: KBTheme.danger)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Super is off: \(message). Caps Lock works as usual.")
-                                .foregroundStyle(KBTheme.textSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            HStack(spacing: 8) {
-                                Button("Try again") { runtime.retry() }
-                                    .buttonStyle(KBGhostButtonStyle())
-                                Button("Open Privacy & Security") { openPrivacySettings() }
-                                    .buttonStyle(KBGhostButtonStyle())
-                            }
-                        }
+                        failure("Super is off: \(message). Caps Lock works as usual.")
+                    case .capsLockStuck(let message):
+                        failure("\(message). AeroSpace keeps trying.")
                     default:
                         StatusDot(color: KBTheme.textTertiary)
                         Text("Starts when AeroSpace reloads the config.")
@@ -205,6 +220,23 @@ struct SuperKeyPane: View {
             }
         }
         .font(.system(size: 12))
+    }
+
+    private func failure(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            StatusDot(color: KBTheme.danger)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(text)
+                    .foregroundStyle(KBTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Button("Try again") { runtime.retry() }
+                        .buttonStyle(KBGhostButtonStyle())
+                    Button("Open Privacy & Security") { openPrivacySettings() }
+                        .buttonStyle(KBGhostButtonStyle())
+                }
+            }
+        }
     }
 
     private func onText(_ superKey: SuperKey) -> String {
@@ -221,11 +253,13 @@ struct SuperKeyPane: View {
             row(title: "Converted \(count(converted.count)) to ◆ Super", detail: "Only the shortcuts changed; commands and comments stayed as they were.") {
                 Button("Undo") { Task.startUnstructured { await model.undoConversion() } }
                     .buttonStyle(KBGhostButtonStyle())
+                    .disabled(model.isConverting)
             }
         } else if optionBindingCount > 0 {
             row(title: "\(count(optionBindingCount)) use ⌥ Option", detail: "Convert them to Super: ⌥⇧1 becomes ◆⇧1. Commands and comments stay as they are.") {
                 Button("Convert to ◆ Super") { Task.startUnstructured { await model.convertOptionBindings() } }
                     .buttonStyle(KBAccentButtonStyle())
+                    .disabled(model.isConverting)
             }
         } else {
             row(
@@ -289,12 +323,21 @@ struct SuperKeyMenuWarning: View {
     @ObservedObject private var runtime = SuperKeyRuntime.shared
 
     var body: some View {
-        if case .failed(let message) = runtime.status {
-            Button { runtime.retry() } label: {
-                Label("Super key is off. Try again", systemImage: "exclamationmark.triangle.fill")
-                Text("\(message). Caps Lock works as usual.")
-            }
-            Divider()
+        switch runtime.status {
+            case .failed(let message):
+                Button { runtime.retry() } label: {
+                    Label("Super key is off. Try again", systemImage: "exclamationmark.triangle.fill")
+                    Text("\(message). Caps Lock works as usual.")
+                }
+                Divider()
+            case .capsLockStuck(let message):
+                Button { runtime.retry() } label: {
+                    Label("Caps Lock is stuck. Try again", systemImage: "exclamationmark.triangle.fill")
+                    Text(message)
+                }
+                Divider()
+            case .off, .on:
+                EmptyView()
         }
     }
 }
