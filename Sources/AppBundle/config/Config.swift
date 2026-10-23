@@ -42,6 +42,8 @@ struct Config: ConvenienceMutable {
     var defaultRootContainerLayout: Layout = .tiles
     var defaultRootContainerOrientation: DefaultContainerOrientation = .auto
     var defaultWorkspaceLayout: WorkspaceLayout = .tiles
+    /// Width of a new column in the scrolling layout, in percent of the screen width
+    var scrollingColumnWidthPercent: Int = 50
     var workspaceLayouts: [String: WorkspaceLayout] = [:]
     var startAtLogin: Bool = false
     var autoReloadConfig: Bool = false

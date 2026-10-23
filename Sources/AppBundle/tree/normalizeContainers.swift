@@ -4,12 +4,14 @@ extension Workspace {
         if config.enableNormalizationOppositeOrientationForNestedContainers && layout != .dwindle {
             rootTilingContainer.normalizeOppositeOrientationForNestedContainers()
         }
+        normalizeScrollingStrip()
     }
 }
 
 extension TilingContainer {
     @MainActor fileprivate func unbindEmptyAndAutoFlatten() {
-        if let child = children.singleOrNil(), config.enableNormalizationFlattenContainers && (child is TilingContainer || !isRootContainer) {
+        // The scrolling strip keeps its root even around a single column, or the column's rows would become columns
+        if let child = children.singleOrNil(), config.enableNormalizationFlattenContainers && (child is TilingContainer || !isRootContainer) && !isScrollingStrip {
             child.unbindFromParent()
             let mru = parent?.mostRecentChild
             let previousBinding = unbindFromParent()

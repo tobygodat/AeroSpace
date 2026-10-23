@@ -7,6 +7,17 @@ func parseWorkspaceLayout(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> R
     }
 }
 
+let scrollingColumnWidthRange = 10 ... 100
+
+/// `scrolling-column-width`: percent of the screen width
+func parseScrollingColumnWidth(_ raw: OrderedJson, _ backtrace: ConfigBacktrace) -> ResOrConfigParseDiagnostic<Int> {
+    parseInt(raw, backtrace).flatMap {
+        scrollingColumnWidthRange.contains($0)
+            ? .success($0)
+            : .failure(.init(backtrace, "scrolling-column-width must be in [\(scrollingColumnWidthRange.lowerBound), \(scrollingColumnWidthRange.upperBound)] (percent of the screen width)"))
+    }
+}
+
 /// `[workspace-layout]` table: workspace name to layout
 func parseWorkspaceLayouts(_ raw: OrderedJson, _ backtrace: ConfigBacktrace, _ c: inout ConfigParserContext) -> [String: WorkspaceLayout] {
     guard let dict = raw.asDictOrNil else {

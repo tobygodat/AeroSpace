@@ -2,17 +2,21 @@ import Common
 import Foundation
 import TOMLDecoder
 
-// Read and write `default-workspace-layout` and the `[workspace-layout]` table for the Layouts settings pane.
-// Writing is a minimal text edit, like editableBindings.swift: comments and every other line are kept byte for byte.
+// Read and write `default-workspace-layout`, `scrolling-column-width` and the `[workspace-layout]` table for the
+// Layouts settings pane. Writing is a minimal text edit, like editableBindings.swift: comments and every other line
+// are kept byte for byte.
 
-/// The two config keys the Layouts pane edits
+/// The config keys the Layouts pane edits
 struct WorkspaceLayoutSettings: Equatable, Sendable {
     /// nil when `default-workspace-layout` is absent, so the implicit default (tiles) applies
     var defaultLayout: WorkspaceLayout?
     /// `[workspace-layout]` entries in file order
     var overrides: [WorkspaceLayoutOverride]
+    /// nil when `scrolling-column-width` is absent, so the implicit default applies
+    var scrollingColumnWidthPercent: Int? = nil
 
     var effectiveDefault: WorkspaceLayout { defaultLayout ?? .tiles }
+    var effectiveScrollingColumnWidthPercent: Int { scrollingColumnWidthPercent ?? Config().scrollingColumnWidthPercent }
 
     var overridesByWorkspace: [String: WorkspaceLayout] {
         Dictionary(overrides.map { ($0.workspace, $0.layout) }, uniquingKeysWith: { a, _ in a })
@@ -25,6 +29,7 @@ struct WorkspaceLayoutOverride: Equatable, Sendable {
 }
 
 private let defaultLayoutKey = "default-workspace-layout"
+private let columnWidthKey = "scrolling-column-width"
 private let overridesKey = "workspace-layout"
 
 /// Absent keys are fine. Fails only for TOML that doesn't parse and for values that aren't layouts
@@ -42,6 +47,14 @@ func readWorkspaceLayoutSettings(_ rawToml: String) -> Result<WorkspaceLayoutSet
             return .failure("\(defaultLayoutKey): expected one of \(WorkspaceLayout.unionLiteral)")
         }
         defaultLayout = layout
+    }
+
+    var columnWidth: Int? = nil
+    if let raw = table[columnWidthKey] {
+        guard let percent = (raw as? Int) ?? (raw as? Int64).map(Int.init), scrollingColumnWidthRange.contains(percent) else {
+            return .failure("\(columnWidthKey): expected a whole number in [\(scrollingColumnWidthRange.lowerBound), \(scrollingColumnWidthRange.upperBound)]")
+        }
+        columnWidth = percent
     }
 
     let rawOverrides: [String: Any]
@@ -66,7 +79,7 @@ func readWorkspaceLayoutSettings(_ rawToml: String) -> Result<WorkspaceLayoutSet
         }
         overrides.append(WorkspaceLayoutOverride(workspace: name, layout: layout))
     }
-    return .success(WorkspaceLayoutSettings(defaultLayout: defaultLayout, overrides: overrides))
+    return .success(WorkspaceLayoutSettings(defaultLayout: defaultLayout, overrides: overrides, scrollingColumnWidthPercent: columnWidth))
 }
 
 /// Returns `rawToml` with `desired` written into it. Only the lines of changed settings are touched
@@ -80,17 +93,28 @@ func rewriteWorkspaceLayouts(_ rawToml: String, _ desired: WorkspaceLayoutSettin
     let statements = scanTomlStatements(lines)
     var edits: [(range: Range<Int>, replacement: [String])] = []
 
+    let topLevel = statements.prefix { if case .table = $0.kind { false } else { true } }
+    // A new top-level key goes right after the closest related key the file already has
+    func insertTopLevel(_ key: String, _ value: String, after anchors: [String]) {
+        let anchor = anchors.lazy.compactMap { name in topLevel.first { $0.singleKey == name } }.first
+        let insertAt = anchor?.lines.upperBound ?? 0
+        let indent = anchor.map { lineIndent(lines[$0.lines.lowerBound]) } ?? ""
+        edits.append((insertAt ..< insertAt, [indent + "\(key) = \(value)"]))
+    }
     if desired.defaultLayout != current.defaultLayout {
-        let topLevel = statements.prefix { if case .table = $0.kind { false } else { true } }
         let value = desired.defaultLayout.map { serializeTomlString($0.rawValue) }
         if let statement = topLevel.first(where: { $0.singleKey == defaultLayoutKey }) {
             edits.append((statement.lines, value.map { [rewrittenStatement(lines, statement, key: defaultLayoutKey, value: $0)] } ?? []))
         } else if let value {
-            let anchor = topLevel.first { $0.singleKey == "default-root-container-layout" } ??
-                topLevel.first { $0.singleKey == "config-version" }
-            let insertAt = anchor?.lines.upperBound ?? 0
-            let indent = anchor.map { lineIndent(lines[$0.lines.lowerBound]) } ?? ""
-            edits.append((insertAt ..< insertAt, [indent + "\(defaultLayoutKey) = \(value)"]))
+            insertTopLevel(defaultLayoutKey, value, after: ["default-root-container-layout", "config-version"])
+        }
+    }
+    if desired.scrollingColumnWidthPercent != current.scrollingColumnWidthPercent {
+        let value = desired.scrollingColumnWidthPercent.map { String($0) }
+        if let statement = topLevel.first(where: { $0.singleKey == columnWidthKey }) {
+            edits.append((statement.lines, value.map { [rewrittenStatement(lines, statement, key: columnWidthKey, value: $0)] } ?? []))
+        } else if let value {
+            insertTopLevel(columnWidthKey, value, after: [defaultLayoutKey, "default-root-container-layout", "config-version"])
         }
     }
 
@@ -138,7 +162,9 @@ func rewriteWorkspaceLayouts(_ rawToml: String, _ desired: WorkspaceLayoutSettin
         case .failure(let msg):
             return .failure("Writing the layouts would break the config (\(msg)). Please edit the config file by hand.")
         case .success(let written):
-            if written.defaultLayout != desired.defaultLayout || written.overridesByWorkspace != desired.overridesByWorkspace {
+            if written.defaultLayout != desired.defaultLayout || written.overridesByWorkspace != desired.overridesByWorkspace ||
+                written.scrollingColumnWidthPercent != desired.scrollingColumnWidthPercent
+            {
                 return .failure("The workspace layouts are defined in a way the editor can't update. Please edit the config file by hand.")
             }
     }
@@ -154,19 +180,20 @@ private func overridesSection(_ statements: [TomlStatement]) -> (header: TomlSta
     return (statements[headerIndex], Array(entries))
 }
 
-/// The statement with a new value. A one-line string value is swapped in place, keeping the key's spelling, the spacing
-/// and a trailing comment. Anything else becomes a fresh `key = value` line
+/// The statement with a new value. A one-line string or integer value is swapped in place, keeping the key's
+/// spelling, the spacing and a trailing comment. Anything else becomes a fresh `key = value` line
 private func rewrittenStatement(_ lines: [String], _ statement: TomlStatement, key: String, value: String) -> String {
     let line = lines[statement.lines.lowerBound]
-    if statement.lines.count == 1, let keyEnd = statement.keyEnd, let valueRange = stringValueRange(Array(line), from: keyEnd) {
+    if statement.lines.count == 1, let keyEnd = statement.keyEnd, let valueRange = scalarValueRange(Array(line), from: keyEnd) {
         let chars = Array(line)
         return String(chars[..<valueRange.lowerBound]) + value + String(chars[valueRange.upperBound...])
     }
     return lineIndent(line) + serializeTomlKey(key) + " = " + value
 }
 
-/// Character range of the single-line string after `= ` in a key-value line, or nil if the value is something else
-private func stringValueRange(_ chars: [Character], from keyEnd: Int) -> Range<Int>? {
+/// Character range of the single-line string or integer after `= ` in a key-value line, or nil if the value is
+/// something else
+private func scalarValueRange(_ chars: [Character], from keyEnd: Int) -> Range<Int>? {
     var i = keyEnd
     func skipWhitespace() { while i < chars.count && (chars[i] == " " || chars[i] == "\t") { i += 1 } }
     skipWhitespace()
@@ -174,7 +201,14 @@ private func stringValueRange(_ chars: [Character], from keyEnd: Int) -> Range<I
     i += 1
     skipWhitespace()
     let start = i
-    guard i < chars.count, chars[i] == "'" || chars[i] == "\"" else { return nil }
+    guard i < chars.count else { return nil }
+    if chars[i].isASCII && (chars[i].isNumber || chars[i] == "-" || chars[i] == "+") {
+        i += 1
+        while i < chars.count && chars[i].isASCII && (chars[i].isNumber || chars[i] == "_") { i += 1 }
+        // A plain decimal ends the value; anything else (0x32, 1e3, 2.5) gets a fresh line instead
+        return i == chars.count || chars[i] == " " || chars[i] == "\t" || chars[i] == "#" ? start ..< i : nil
+    }
+    guard chars[i] == "'" || chars[i] == "\"" else { return nil }
     let quote = chars[i]
     if i + 2 < chars.count && chars[i + 1] == quote && chars[i + 2] == quote { return nil } // Multiline string
     i += 1
