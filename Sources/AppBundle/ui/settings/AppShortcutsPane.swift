@@ -213,8 +213,7 @@ private struct SuggestionRowView: View {
             AppLabel(target: suggestion.target, replaces: suggestion.replaces)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 3) {
-                Keycap("Super")
-                ForEach(Array(shortcutSymbols(suggestion.keysAfterSuper).enumerated()), id: \.offset) { _, symbol in
+                ForEach(Array(shortcutSymbols(suggestion.key).enumerated()), id: \.offset) { _, symbol in
                     Keycap(symbol)
                 }
             }

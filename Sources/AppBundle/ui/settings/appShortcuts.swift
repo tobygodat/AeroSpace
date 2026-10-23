@@ -174,9 +174,6 @@ struct AppShortcutSuggestion: Identifiable, Equatable {
     let replaces: String?
 
     var id: String { key }
-
-    /// The keys after Super, e.g. "shift-m"
-    var keysAfterSuper: String { key.hasPrefix(superKey + "-") ? String(key.dropFirst(superKey.count + 1)) : key }
 }
 
 func focusAppTarget(of binding: EditableBinding) -> FocusAppTarget? {
