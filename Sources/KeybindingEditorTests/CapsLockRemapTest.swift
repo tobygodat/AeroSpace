@@ -2,14 +2,18 @@
 import Foundation
 import Testing
 
-private let capsToF18 = HidKeyMapping(src: capsLockUsage, dst: f18Usage)
+let capsToF18 = HidKeyMapping(src: capsLockUsage, dst: f18Usage)
 private let capsToControl = HidKeyMapping(src: capsLockUsage, dst: 0x7_0000_00E0)
+private let capsToEscape = HidKeyMapping(src: capsLockUsage, dst: 0x7_0000_0029)
 private let swapAB = HidKeyMapping(src: 0x7_0000_0004, dst: 0x7_0000_0005)
+/// What System Settings → Modifier Keys writes for a PC keyboard: ⌥ and ⌘ swapped
+private let swapOptionCommand = HidKeyMapping(src: 0x7_0000_00E2, dst: 0x7_0000_00E3)
 
 /// hidutil for keyboard services that live in memory. Never touches the real HID system
-private final class FakeHidutil: @unchecked Sendable {
+final class FakeHidutil: @unchecked Sendable {
+    /// One per keyboard service, in the order hidutil lists them
     var keyboards: [[HidKeyMapping]]
-    var sets: [[HidKeyMapping]] = []
+    var sets = 0
     var calls = 0
     var failGet = false
     var failSet = false
@@ -18,19 +22,26 @@ private final class FakeHidutil: @unchecked Sendable {
 
     func run(_ arguments: [String]) throws -> String {
         calls += 1
-        #expect(Array(arguments.prefix(3)) == ["property", "--matching", "keyboard"])
-        switch arguments[3] {
-            case "--get":
-                if failGet { throw HidutilError(description: "boom") }
+        if failGet && !arguments.contains("--set") { throw HidutilError(description: "boom") }
+        switch arguments {
+            case ["list", "--matching", "keyboard"]:
+                return "Services:\nVendorID ProductID LocationID UsagePage Usage RegistryID  Transport Class    Product      UserClass Built-In \n"
+                    + keyboards.indices.map { "0x5ac    0x\(index: $0)  0x\(index: $0 + 0xA0) 1         6     0x10000\(index: $0)fea USB       AppleHID Keyboard \($0) (null)    0        " }
+                    .joined(separator: "\n")
+                    + "\n\nDevices:\nVendorID ProductID LocationID UsagePage Usage RegistryID  Transport Class Product UserClass Built-In \n0x5ac 0x0 0xa0 1 6 0x100000aaa USB AppleHIDDevice Keyboard (null) 0\n"
+            case ["property", "--matching", "keyboard", "--get", "UserKeyMapping"]:
                 return "RegistryID  Key                   Value\n" + keyboards.enumerated().map { index, list in
-                    "10000\(index)fea   UserKeyMapping   " + render(list)
+                    "10000\(index: index)fea   UserKeyMapping   " + render(list)
                 }.joined(separator: "\n") + "\n"
-            case "--set":
+            case _ where arguments.count == 5 && arguments[0] == "property" && arguments[3] == "--set":
                 if failSet { throw HidutilError(description: "refused") }
+                let matching = try JSONSerialization.jsonObject(with: Data(arguments[2].utf8)) as! [String: UInt64]
+                #expect(matching["PrimaryUsagePage"] == 1 && matching["PrimaryUsage"] == 6, "only keyboards")
+                let index = Int(matching["ProductID"]!)
+                #expect(matching == ["VendorID": 0x5AC, "ProductID": UInt64(index), "LocationID": UInt64(index + 0xA0), "PrimaryUsagePage": 1, "PrimaryUsage": 6])
                 let json = try JSONSerialization.jsonObject(with: Data(arguments[4].utf8)) as! [String: [[String: UInt64]]]
-                let list = json["UserKeyMapping"]!.map { HidKeyMapping(src: $0["HIDKeyboardModifierMappingSrc"]!, dst: $0["HIDKeyboardModifierMappingDst"]!) }
-                sets.append(list)
-                keyboards = keyboards.map { _ in list }
+                keyboards[index] = json["UserKeyMapping"]!.map { HidKeyMapping(src: $0["HIDKeyboardModifierMappingSrc"]!, dst: $0["HIDKeyboardModifierMappingDst"]!) }
+                sets += 1
                 return ""
             default:
                 Issue.record("unexpected hidutil \(arguments)")
@@ -46,6 +57,10 @@ private final class FakeHidutil: @unchecked Sendable {
         }
         return "(\n" + entries.joined(separator: ",\n") + "\n)"
     }
+}
+
+private extension String.StringInterpolation {
+    mutating func appendInterpolation(index: Int) { appendLiteral(String(index, radix: 16)) }
 }
 
 @Suite final class CapsLockRemapTest {
@@ -70,20 +85,21 @@ private final class FakeHidutil: @unchecked Sendable {
         #expect(!hasMarker)
     }
 
-    @Test func otherMappingsAreKept() {
-        let fake = FakeHidutil([[swapAB], [swapAB]])
-        _ = remap(fake).apply()
-        #expect(fake.keyboards == [[swapAB, capsToF18], [swapAB, capsToF18]])
-        _ = remap(fake).restore()
-        #expect(fake.keyboards == [[swapAB], [swapAB]])
+    /// A PC keyboard with ⌥ and ⌘ swapped next to the built-in one: each keeps its own remaps
+    @Test func eachKeyboardKeepsItsOwnMappings() {
+        let fake = FakeHidutil([[], [swapOptionCommand, swapAB]])
+        #expect(remap(fake).apply().failureOrNil == nil)
+        #expect(fake.keyboards == [[capsToF18], [swapOptionCommand, swapAB, capsToF18]])
+        #expect(remap(fake).restore().failureOrNil == nil)
+        #expect(fake.keyboards == [[], [swapOptionCommand, swapAB]])
     }
 
-    @Test func previousCapsLockMappingComesBack() {
-        let fake = FakeHidutil([[capsToControl, swapAB]])
+    @Test func eachKeyboardGetsItsOwnCapsLockMappingBack() {
+        let fake = FakeHidutil([[capsToControl, swapAB], [capsToEscape], []])
         _ = remap(fake).apply()
-        #expect(fake.keyboards == [[swapAB, capsToF18]])
+        #expect(fake.keyboards == [[swapAB, capsToF18], [capsToF18], [capsToF18]])
         _ = remap(fake).restore()
-        #expect(fake.keyboards == [[swapAB, capsToControl]])
+        #expect(fake.keyboards == [[swapAB, capsToControl], [capsToEscape], []])
     }
 
     /// AeroSpace crashed with Caps Lock remapped: the next launch restores before anything else
@@ -95,15 +111,28 @@ private final class FakeHidutil: @unchecked Sendable {
         #expect(fake.keyboards == [[capsToControl]])
     }
 
-    /// Applying again before a restore (a crash, then a launch that skipped recovery) must not save F18 as the original
+    /// Applying again before a restore must neither write again nor save F18 as the original
     @Test func applyTwiceKeepsTheOriginal() {
         let fake = FakeHidutil([[capsToControl]])
         _ = remap(fake).apply()
-        let setsAfterFirst = fake.sets.count
+        let setsAfterFirst = fake.sets
         #expect(remap(fake).apply().failureOrNil == nil)
-        #expect(fake.sets.count == setsAfterFirst, "already remapped: no second set")
+        #expect(fake.sets == setsAfterFirst, "already remapped: no second set")
         _ = remap(fake).restore()
         #expect(fake.keyboards == [[capsToControl]])
+    }
+
+    /// Applying again covers a keyboard plugged in since, and leaves the others alone
+    @Test func keyboardPluggedInLaterGetsTheRemap() {
+        let fake = FakeHidutil([[swapAB]])
+        _ = remap(fake).apply()
+        fake.keyboards.append([capsToEscape, swapOptionCommand])
+        let setsBefore = fake.sets
+        #expect(remap(fake).apply().failureOrNil == nil)
+        #expect(fake.sets == setsBefore + 1)
+        #expect(fake.keyboards == [[swapAB, capsToF18], [swapOptionCommand, capsToF18]])
+        _ = remap(fake).restore()
+        #expect(fake.keyboards == [[swapAB], [swapOptionCommand, capsToEscape]])
     }
 
     @Test func restoreWithoutMarkerDoesNothing() {
@@ -117,9 +146,9 @@ private final class FakeHidutil: @unchecked Sendable {
         let fake = FakeHidutil([[]])
         _ = remap(fake).apply()
         fake.keyboards = [[capsToControl]] // Changed by another tool while AeroSpace ran
-        let setsBefore = fake.sets.count
+        let setsBefore = fake.sets
         #expect(remap(fake).restore().failureOrNil == nil)
-        #expect(fake.sets.count == setsBefore)
+        #expect(fake.sets == setsBefore)
         #expect(fake.keyboards == [[capsToControl]])
         #expect(!hasMarker)
     }
@@ -128,30 +157,24 @@ private final class FakeHidutil: @unchecked Sendable {
     @Test func restoreAfterRebootOnlyDropsTheMarker() {
         let fake = FakeHidutil([[swapAB]])
         _ = remap(fake).apply()
-        fake.keyboards = [[]]
-        let setsBefore = fake.sets.count
+        fake.keyboards = [[swapAB]]
+        let setsBefore = fake.sets
         #expect(remap(fake).restore().failureOrNil == nil)
-        #expect(fake.sets.count == setsBefore)
+        #expect(fake.sets == setsBefore)
         #expect(!hasMarker)
     }
 
-    @Test func keyboardsWithDifferentRemapsAreLeftAlone() {
-        let fake = FakeHidutil([[swapAB], []])
-        guard case .failure(let message) = remap(fake).apply() else {
-            Issue.record("expected a failure")
-            return
-        }
-        #expect(message.contains("Modifier Keys"))
-        #expect(fake.sets.isEmpty)
-        #expect(!hasMarker)
-    }
-
-    @Test func failedSetLeavesNoMarker() {
-        let fake = FakeHidutil([[]])
+    /// A refresh that can't write must keep what the first apply saved, so a restore still puts Caps Lock back
+    @Test func failedRefreshKeepsTheMarker() {
+        let fake = FakeHidutil([[capsToControl]])
+        _ = remap(fake).apply()
+        fake.keyboards.append([])
         fake.failSet = true
         #expect(remap(fake).apply().failureOrNil?.contains("refused") == true)
-        #expect(fake.keyboards == [[]])
-        #expect(!hasMarker)
+        #expect(hasMarker)
+        fake.failSet = false
+        #expect(remap(fake).restore().failureOrNil == nil)
+        #expect(fake.keyboards == [[capsToControl], []])
     }
 
     @Test func failedRestoreKeepsTheMarkerAndSaysHowToUndo() {
@@ -160,7 +183,7 @@ private final class FakeHidutil: @unchecked Sendable {
         fake.failGet = true
         let message = remap(fake).restore().failureOrNil ?? ""
         #expect(message.contains("hidutil property --set '{\"UserKeyMapping\":[]}'"))
-        #expect(hasMarker, "the next launch tries again")
+        #expect(hasMarker, "the next try still knows what to put back")
     }
 
     @Test func parsesHidutilOutput() {
@@ -179,32 +202,35 @@ private final class FakeHidutil: @unchecked Sendable {
             )
 
             """
-        #expect(parseUserKeyMappings(table) == [[], [HidKeyMapping(src: capsLockUsage, dst: 0x7_0000_00E4), swapAB]])
+        let parsed = parseUserKeyMappings(table)
+        #expect(parsed.map(\.registryID) == [0x1_0000_0CB6, 0x1_0000_0FEA])
+        #expect(parsed.map(\.mappings) == [[], [HidKeyMapping(src: capsLockUsage, dst: 0x7_0000_00E4), swapAB]])
         let bare = "(\n    {\n    HIDKeyboardModifierMappingDst = 30064771181;\n    HIDKeyboardModifierMappingSrc = 30064771129;\n}\n)\n"
-        #expect(parseUserKeyMappings(bare) == [[capsToF18]])
-        #expect(parseUserKeyMappings("(null)\n") == [[]])
+        #expect(parseUserKeyMappings(bare).map(\.mappings) == [[capsToF18]])
+        #expect(parseUserKeyMappings(bare).map(\.registryID) == [nil])
+        #expect(parseUserKeyMappings("(null)\n").map(\.mappings) == [[]])
+    }
+
+    /// `hidutil list --matching keyboard` on macOS 27, plus a row whose IDs aren't numbers
+    @Test func parsesKeyboardServices() {
+        let list = """
+            Services:
+            VendorID ProductID LocationID UsagePage Usage RegistryID  Transport Class                         Product                            UserClass Built-In 
+            0x0      0x0       0xa7       1         6     0x100000fea FIFO      AppleHIDKeyboardEventDriverV2 Apple Internal Keyboard / Trackpad (null)    1        
+            (null)   (null)    (null)     1         6     0x100000abc Virtual   SomeVirtualKeyboard           Virtual Keyboard                   (null)    0        
+
+            Devices:
+            VendorID ProductID LocationID UsagePage Usage RegistryID  Transport Class                      Product                            UserClass Built-In 
+            0x0      0x0       0xa7       1         6     0x100000fd4 FIFO      AppleHIDTransportHIDDevice Apple Internal Keyboard / Trackpad (null)    1        
+
+            """
+        let services = parseKeyboardServices(list)
+        #expect(services.map(\.registryID) == [0x1_0000_0FEA])
+        #expect(services.map(\.matching) == [#"{"VendorID":0,"ProductID":0,"LocationID":167,"PrimaryUsagePage":1,"PrimaryUsage":6}"#])
     }
 
     @Test func setJson() {
         #expect(userKeyMappingJson([]) == #"{"UserKeyMapping":[]}"#)
         #expect(userKeyMappingJson([capsToF18]) == #"{"UserKeyMapping":[{"HIDKeyboardModifierMappingSrc":30064771129,"HIDKeyboardModifierMappingDst":30064771181}]}"#)
-    }
-}
-
-@Suite final class CapsLockRemapNewKeyboardTest {
-    private let markerUrl = FileManager.default.temporaryDirectory.appending(path: "caps-lock-remap-\(UUID().uuidString).json")
-
-    deinit { try? FileManager.default.removeItem(at: markerUrl) }
-
-    /// A keyboard plugged in after the remap has no Caps Lock entry yet. Applying again covers it instead of refusing
-    @Test func keyboardPluggedInLaterGetsTheRemap() {
-        let fake = FakeHidutil([[swapAB]])
-        let remap = CapsLockRemap(hidutil: { try fake.run($0) }, markerUrl: markerUrl)
-        _ = remap.apply()
-        fake.keyboards.append([swapAB])
-        #expect(remap.apply().failureOrNil == nil)
-        #expect(fake.keyboards == [[swapAB, capsToF18], [swapAB, capsToF18]])
-        _ = remap.restore()
-        #expect(fake.keyboards == [[swapAB], [swapAB]])
     }
 }
