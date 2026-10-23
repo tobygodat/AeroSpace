@@ -1,13 +1,14 @@
 import AppKit
 import Common
 
-// Per-workspace layout mode (tiles, dwindle, floating). See WorkspaceLayout in Common.
+// Per-workspace layout mode (tiles, dwindle, scrolling, floating). See WorkspaceLayout in Common.
 //
 // The mode is a policy over the existing tree, not a new container algorithm:
 // - it decides where a new tiling window is bound (`bindingDataForNewTilingWindow`),
 // - it rebuilds the tree once when the mode changes (`applyLayout`),
 // - it keeps the floating layout's invariant before every layout pass (`reconcileFloatingLayout`),
-// - layoutRecursive stays untouched.
+// - layoutRecursive stays untouched. Scrolling alone positions the root's children itself (`layoutScrolling`),
+//   because its strip of columns is wider than the screen; each column is still laid out by layoutRecursive.
 
 /// Set by the `workspace-layout` command, until reload-config. Keyed by name rather than stored on the Workspace
 /// object, so an override on an empty workspace survives the workspace being garbage collected and recreated
@@ -62,7 +63,9 @@ extension Workspace {
                 rootTilingContainer.layout = .tiles
             }
             if layout == .scrolling {
-                die("TODO(AERO-4 scrolling): reset the root to a horizontal tiles strip and scrollOffset to 0")
+                rootTilingContainer.layout = .tiles
+                rootTilingContainer.setOrientationOnly(.h)
+                scrollOffset = 0
             }
             for window in windows {
                 let data = switch layout {
@@ -130,7 +133,19 @@ extension Workspace {
     /// most recent window, `config.scrollingColumnWidthPercent` of the workspace width wide
     @MainActor
     private func scrollingBindingData() -> BindingData {
-        die("TODO(AERO-4 scrolling): scrollingBindingData")
+        // MRU propagates up the tree, so the root's most recent child is the focused window's column
+        let column = rootTilingContainer.mostRecentChild
+        return BindingData(
+            parent: rootTilingContainer,
+            adaptiveWeight: defaultScrollingColumnWidth,
+            index: column.map { $0.ownIndex.orDie() + 1 } ?? INDEX_BIND_LAST,
+        )
+    }
+
+    /// Scrolling: `scrolling-column-width` percent of the workspace width, in whole points
+    @MainActor
+    var defaultScrollingColumnWidth: CGFloat {
+        (CGFloat(config.scrollingColumnWidthPercent) / 100 * workspaceMonitor.visibleRectPaddedByOuterGaps.width).rounded()
     }
 
     @MainActor
