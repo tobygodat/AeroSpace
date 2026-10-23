@@ -40,9 +40,10 @@ extension Workspace {
         var total: CGFloat = 0
         for column in root.children {
             let weight = column.getWeight(.h)
-            // WEIGHT_AUTO into an empty root and a tiles rebuild both leave a weight of 1, which means "unsized" here
+            // WEIGHT_AUTO into an empty root and a tiles rebuild both leave a weight of 1, which means "unsized" here. A
+            // sized column keeps its weight even when a narrower screen can't show all of it
             let width = weight <= 1 ? defaultScrollingColumnWidth : weight.coerce(in: scrollingColumnWidths)
-            column.setWeight(.h, width)
+            if weight <= 1 { column.setWeight(.h, width) }
             let start = starts.isEmpty ? 0 : total + gap
             starts.append(start)
             widths.append(width)
@@ -56,25 +57,44 @@ extension Workspace {
             scrollOffset = offset.coerce(in: 0 ... max(0, total - rect.width))
         }
 
-        // Out-of-view columns are parked like the windows of hidden workspaces: in the monitor's bottom corner with one
-        // point on screen, which keeps macOS from pulling them back and keeps them off a neighbouring monitor. A column
-        // that only partly fits is still shown where the strip puts it, unless it would spill onto a monitor on that side
+        // Out-of-view columns are parked like the windows of hidden workspaces (hideInCorner): off an edge of the monitor
+        // with one point on screen, which keeps macOS from pulling them back. The edge or bottom corner is the one that
+        // shows the least of the column on other monitors. A column that only partly fits is still shown where the
+        // strip puts it, unless it would spill onto a monitor on that side
         let monitor = workspaceMonitor
+        let otherMonitors = monitors.filter { $0.rect.topLeftCorner != monitor.rect.topLeftCorner }
         func hasMonitor(toThe direction: CardinalDirection) -> Bool {
             monitor.findRelativeMonitor(inDirection: direction).map { $0.monitorsInDirection.indices.contains($0.index) } ?? false
         }
         let spillAllowed = (left: !hasMonitor(toThe: .left), right: !hasMonitor(toThe: .right))
-        let corner = optimalHideCorner(of: monitor, among: monitors)
-        func park(_ node: TreeNode, at frame: Rect, virtual: Rect) {
+        func parkedFrame(width: CGFloat, inset: CGFloat) -> Rect {
+            let screen = monitor.visibleRect
+            let height = rect.height - 1
+            let candidates = [
+                Rect(topLeftX: screen.maxX - inset, topLeftY: screen.maxY - inset, width: width, height: height),
+                Rect(topLeftX: screen.minX + inset - width, topLeftY: screen.maxY - inset, width: width, height: height),
+                Rect(topLeftX: screen.maxX - inset, topLeftY: rect.minY, width: width, height: height),
+                Rect(topLeftX: screen.minX + inset - width, topLeftY: rect.minY, width: width, height: height),
+            ]
+            func overlap(_ a: Rect, _ b: Rect) -> CGFloat {
+                max(0, min(a.maxX, b.maxX) - max(a.minX, b.minX)) * max(0, min(a.maxY, b.maxY) - max(a.minY, b.minY))
+            }
+            return candidates.minByOrDie { candidate in otherMonitors.sumOfDouble { overlap(candidate, $0.rect) } }
+        }
+        func park(_ node: TreeNode, width: CGFloat, virtual: Rect) {
             if let window = node as? Window {
                 if window.windowId == currentlyManipulatedWithMouseWindowId { return }
+                // Zoom jumps off a one-point offset (hideInCorner cites nikitabobko/AeroSpace#527)
+                let frame = parkedFrame(width: width, inset: (window.app as? MacApp)?.appId == .zoom ? 0 : 1)
                 window.isFullscreen = false
                 window.setAxFrame(frame.topLeftCorner, frame.size)
+                node.lastAppliedLayoutPhysicalRect = frame
+            } else {
+                node.lastAppliedLayoutPhysicalRect = parkedFrame(width: width, inset: 1)
             }
-            node.lastAppliedLayoutPhysicalRect = frame
             node.lastAppliedLayoutVirtualRect = virtual
             for child in node.children {
-                park(child, at: frame, virtual: virtual)
+                park(child, width: width, virtual: virtual)
             }
         }
         for (i, column) in root.children.enumerated() {
@@ -88,11 +108,7 @@ extension Workspace {
                 let onScreenX = x.coerce(in: rect.minX ... max(rect.minX, rect.maxX - width))
                 try await column.layoutRecursive(CGPoint(x: onScreenX, y: rect.minY), width: width, height: rect.height - 1, virtual: virtual, context)
             } else {
-                let parkedX = switch corner {
-                    case .bottomLeftCorner: monitor.visibleRect.minX + 1 - width
-                    case .bottomRightCorner: monitor.visibleRect.maxX - 1
-                }
-                park(column, at: Rect(topLeftX: parkedX, topLeftY: monitor.visibleRect.maxY - 1, width: width, height: rect.height - 1), virtual: virtual)
+                park(column, width: width, virtual: virtual)
             }
         }
         try await floatingWindowsContainer.layoutRecursive(rect.topLeftCorner, width: rect.width, height: rect.height - 1, virtual: rect, context)

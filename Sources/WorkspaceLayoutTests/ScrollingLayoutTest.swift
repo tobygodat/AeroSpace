@@ -125,7 +125,7 @@ extension WorkspaceLayoutTest {
         #expect(first.getWeight(.h) == 1)
 
         try await workspace.layoutWorkspace()
-        #expect(workspace.rootTilingContainer.children.map { $0.getWeight(.h) } == [960, 1920], "the weights are the widths now")
+        #expect(workspace.rootTilingContainer.children.map { $0.getWeight(.h) } == [960, 3000], "the unsized column is sized now; the wide one keeps its weight for a wider screen")
         #expect(workspace.scrollOffset == 960, "2 is focused and as wide as the screen")
         expectRect(first.frame, parked)
         expectRect(second.frame, rect(0, 0, 1920, 1080))

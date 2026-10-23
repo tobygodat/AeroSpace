@@ -152,31 +152,6 @@ enum OptimalHideCorner {
     case bottomLeftCorner, bottomRightCorner
 }
 
-/// The bottom corner of `monitor` where a window parked with one point on screen is least likely to show up on a
-/// neighbouring monitor
-@MainActor
-func optimalHideCorner(of monitor: Monitor, among monitors: [Monitor]) -> OptimalHideCorner {
-    let xOff = monitor.width * 0.1
-    let yOff = monitor.height * 0.1
-    // brc = bottomRightCorner
-    let brc1 = monitor.rect.bottomRightCorner + CGPoint(x: 2, y: -yOff)
-    let brc2 = monitor.rect.bottomRightCorner + CGPoint(x: -xOff, y: 2)
-    let brc3 = monitor.rect.bottomRightCorner + CGPoint(x: 2, y: 2)
-
-    // blc = bottomLeftCorner
-    let blc1 = monitor.rect.bottomLeftCorner + CGPoint(x: -2, y: -yOff)
-    let blc2 = monitor.rect.bottomLeftCorner + CGPoint(x: xOff, y: 2)
-    let blc3 = monitor.rect.bottomLeftCorner + CGPoint(x: -2, y: 2)
-
-    func contains(_ monitor: Monitor, _ point: CGPoint) -> Int { monitor.rect.contains(point) ? 1 : 0 }
-    let important = 10
-
-    return monitors.sumOfInt { contains($0, blc1) + contains($0, blc2) + important * contains($0, blc3) } <
-        monitors.sumOfInt { contains($0, brc1) + contains($0, brc2) + important * contains($0, brc3) }
-        ? .bottomLeftCorner
-        : .bottomRightCorner
-}
-
 @MainActor
 private func layoutWorkspaces() async throws {
     if !TrayMenuModel.shared.isEnabled {
@@ -189,7 +164,27 @@ private func layoutWorkspaces() async throws {
     let monitors = monitors
     var monitorToOptimalHideCorner: [CGPoint: OptimalHideCorner] = [:]
     for monitor in monitors {
-        monitorToOptimalHideCorner[monitor.rect.topLeftCorner] = optimalHideCorner(of: monitor, among: monitors)
+        let xOff = monitor.width * 0.1
+        let yOff = monitor.height * 0.1
+        // brc = bottomRightCorner
+        let brc1 = monitor.rect.bottomRightCorner + CGPoint(x: 2, y: -yOff)
+        let brc2 = monitor.rect.bottomRightCorner + CGPoint(x: -xOff, y: 2)
+        let brc3 = monitor.rect.bottomRightCorner + CGPoint(x: 2, y: 2)
+
+        // blc = bottomLeftCorner
+        let blc1 = monitor.rect.bottomLeftCorner + CGPoint(x: -2, y: -yOff)
+        let blc2 = monitor.rect.bottomLeftCorner + CGPoint(x: xOff, y: 2)
+        let blc3 = monitor.rect.bottomLeftCorner + CGPoint(x: -2, y: 2)
+
+        func contains(_ monitor: Monitor, _ point: CGPoint) -> Int { monitor.rect.contains(point) ? 1 : 0 }
+        let important = 10
+
+        let corner: OptimalHideCorner =
+            monitors.sumOfInt { contains($0, blc1) + contains($0, blc2) + important * contains($0, blc3) } <
+            monitors.sumOfInt { contains($0, brc1) + contains($0, brc2) + important * contains($0, brc3) }
+            ? .bottomLeftCorner
+            : .bottomRightCorner
+        monitorToOptimalHideCorner[monitor.rect.topLeftCorner] = corner
     }
 
     // to reduce flicker, first unhide visible workspaces, then hide invisible ones

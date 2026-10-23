@@ -83,8 +83,9 @@ scrolling-column-width = 50            # percent of the screen, for new columns 
 
 macOS can't clip a window, so the scrolling strip relies on one fact (measured in a scratch app): a window stays
 exactly where it is put as long as one point of it is on some screen, and is pulled back to 40 points visible at zero.
-Out-of-view columns therefore sit in the monitor's hide corner with one point showing, and a column that would only
-partly fit is shown as is on a single monitor but parked when the overflow side has a neighbouring monitor.
+Out-of-view columns therefore sit off the monitor's edge or bottom corner that other monitors see least of, with one
+point showing (the same trick `hideInCorner` plays for hidden workspaces), and a column that would only partly fit is
+shown as is on a single monitor but parked when the overflow side has a neighbouring monitor.
 
 ## Phase 2: Launcher (replaces Raycast for apps)
 

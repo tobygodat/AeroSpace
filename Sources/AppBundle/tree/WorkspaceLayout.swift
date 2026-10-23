@@ -65,8 +65,8 @@ extension Workspace {
             if layout == .scrolling {
                 rootTilingContainer.layout = .tiles
                 rootTilingContainer.setOrientationOnly(.h)
-                scrollOffset = 0
             }
+            scrollOffset = 0
             for window in windows {
                 let data = switch layout {
                     case .tiles: BindingData(parent: rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
