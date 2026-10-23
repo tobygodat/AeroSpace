@@ -101,6 +101,8 @@ aerospace -h;
 
     | workspace-back-and-forth
 
+    | workspace-layout [--workspace <workspace>] (tiles|dwindle|floating|next)...
+
     | list-apps [--macos-native-hidden [no] | --format <output_format> | --count | --json]...
 
     | list-exec-env-vars
