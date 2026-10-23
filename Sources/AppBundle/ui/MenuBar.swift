@@ -12,6 +12,7 @@ public func menuBar(viewModel: TrayMenuModel) -> some Scene { // todo should it 
             .keyboardShortcut("C", modifiers: .command)
         Divider()
 
+        SuperKeyMenuWarning()
         if viewModel.axPermissionStatus == .granted {
             if let token: RunSessionGuard = .isServerEnabled, viewModel.lastReloadConfigContainedWarnings {
                 Button {
