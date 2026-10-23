@@ -270,10 +270,6 @@ private func trailingComment(_ line: String) -> String {
 }
 
 private extension TomlStatement {
-    var keyPath: [String]? {
-        if case .keyValue(let path, _) = kind { path } else { nil }
-    }
-
     var tablePath: [String]? {
         if case .table(let path, false) = kind { path } else { nil }
     }
