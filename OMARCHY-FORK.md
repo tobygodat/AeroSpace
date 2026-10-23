@@ -50,17 +50,21 @@ Original design notes:
 | Conflict warnings | Flag duplicates, and Option+arrow / Option+letter clashes with text editing |
 | Presets | "Omarchy (Option)", "Omarchy (Cmd)", "Omarchy (Hyper)", "AeroSpace default" |
 
-## Workspace layouts: tiles, dwindle, floating. Built; not yet tried inside the running WM
+## Workspace layouts: tiles, dwindle, scrolling, floating. Built; not yet tried inside the running WM
 
 Each workspace has a layout. **Tiles** is upstream AeroSpace (new windows join the focused window's container).
 **Dwindle** is Hyprland's default: a new window splits the focused window along its longer side, so windows spiral.
-**Floating** floats every window; switching back tiles exactly the windows the layout floated, and leaves dialogs
-and `layout floating` windows alone. `workspace-layout next` cycles tiles → dwindle → floating, and the Omarchy
-presets bind it to Super ⇧ T. Settings → **Layouts** picks the default, adds per-workspace overrides and records the
-cycle shortcut; Save rewrites only those lines of the config and reloads.
+**Scrolling** is PaperWM/niri: windows are columns on a strip wider than the screen that scrolls just enough to keep
+the focused column in view; `join-with` stacks windows into a column, `move left/right` walks columns, `resize width`
+sets a column's width. **Floating** floats every window; switching back tiles exactly the windows the layout floated,
+and leaves dialogs and `layout floating` windows alone. `workspace-layout next` cycles tiles → dwindle → scrolling →
+floating, and the Omarchy presets bind it to Super ⇧ T. Settings → **Layouts** picks the default, the scrolling column
+width, adds per-workspace overrides and records the cycle shortcut; Save rewrites only those lines of the config and
+reloads.
 
 ```toml
-default-workspace-layout = 'dwindle'   # tiles (default) | dwindle | floating
+default-workspace-layout = 'dwindle'   # tiles (default) | dwindle | scrolling | floating
+scrolling-column-width = 50            # percent of the screen, for new columns in the scrolling layout
 
 [workspace-layout]
 3 = 'floating'                          # per-workspace override
@@ -70,14 +74,17 @@ default-workspace-layout = 'dwindle'   # tiles (default) | dwindle | floating
 |---|---|
 | `Sources/Common/model/WorkspaceLayout.swift` | The enum and the `next` cycle |
 | `Sources/AppBundle/tree/WorkspaceLayout.swift` | Where new windows go per layout, `applyLayout` (rebuilds the tree), re-apply after `reload-config` |
-| `Sources/AppBundle/command/impl/WorkspaceLayoutCommand.swift` | `workspace-layout [--workspace <name>] (tiles\|dwindle\|floating\|next)...` |
+| `Sources/AppBundle/layout/layoutRecursive.swift` | `layoutScrolling`: the strip's viewport math; out-of-view columns are parked like hidden workspaces' windows |
+| `Sources/AppBundle/command/impl/WorkspaceLayoutCommand.swift` | `workspace-layout [--workspace <name>] (tiles\|dwindle\|scrolling\|floating\|next)...` |
 | `Sources/AppBundle/config/parseWorkspaceLayout.swift`, `editableWorkspaceLayouts.swift` | Parse the two keys; minimal-diff rewrite for the pane |
 | `Sources/AppBundle/ui/settings/LayoutsPane.swift`, `LayoutsPaneModel.swift` | The Settings pane (`--pane layouts` in the preview harness) |
 | `Sources/WorkspaceLayoutTests/` | swift-testing suite with ASCII frame diagrams; run `./test-workspace-layouts.sh` |
 | `docs/aerospace-workspace-layout.adoc`, `docs/guide.adoc` | Command and config docs |
 
-Scrolling (PaperWM/niri style) is designed but not built: off-view columns can be parked with a 1 px sliver on
-screen, the same trick `hideInCorner` uses, since macOS only pulls a window back when none of it is visible.
+macOS can't clip a window, so the scrolling strip relies on one fact (measured in a scratch app): a window stays
+exactly where it is put as long as one point of it is on some screen, and is pulled back to 40 points visible at zero.
+Out-of-view columns therefore sit in the monitor's hide corner with one point showing, and a column that would only
+partly fit is shown as is on a single monitor but parked when the overflow side has a neighbouring monitor.
 
 ## Phase 2: Launcher (replaces Raycast for apps)
 

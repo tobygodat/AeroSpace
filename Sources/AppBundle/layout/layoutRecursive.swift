@@ -56,6 +56,15 @@ extension Workspace {
             scrollOffset = offset.coerce(in: 0 ... max(0, total - rect.width))
         }
 
+        // Out-of-view columns are parked like the windows of hidden workspaces: in the monitor's bottom corner with one
+        // point on screen, which keeps macOS from pulling them back and keeps them off a neighbouring monitor. A column
+        // that only partly fits is still shown where the strip puts it, unless it would spill onto a monitor on that side
+        let monitor = workspaceMonitor
+        func hasMonitor(toThe direction: CardinalDirection) -> Bool {
+            monitor.findRelativeMonitor(inDirection: direction).map { $0.monitorsInDirection.indices.contains($0.index) } ?? false
+        }
+        let spillAllowed = (left: !hasMonitor(toThe: .left), right: !hasMonitor(toThe: .right))
+        let corner = optimalHideCorner(of: monitor, among: monitors)
         func park(_ node: TreeNode, at frame: Rect, virtual: Rect) {
             if let window = node as? Window {
                 if window.windowId == currentlyManipulatedWithMouseWindowId { return }
@@ -71,11 +80,15 @@ extension Workspace {
         for (i, column) in root.children.enumerated() {
             let (x, width) = (rect.minX + starts[i] - scrollOffset, widths[i])
             let virtual = Rect(topLeftX: x, topLeftY: rect.minY, width: width, height: rect.height)
-            if x < rect.maxX && x + width > rect.minX {
+            let inView = x < rect.maxX && x + width > rect.minX && (x >= rect.minX || spillAllowed.left) && (x + width <= rect.maxX || spillAllowed.right)
+            if inView {
                 try await column.layoutRecursive(CGPoint(x: x, y: rect.minY), width: width, height: rect.height - 1, virtual: virtual, context)
             } else {
-                let parkedX = x < rect.minX ? rect.minX - width + 1 : rect.maxX - 1
-                park(column, at: Rect(topLeftX: parkedX, topLeftY: rect.minY, width: width, height: rect.height - 1), virtual: virtual)
+                let parkedX = switch corner {
+                    case .bottomLeftCorner: monitor.visibleRect.minX + 1 - width
+                    case .bottomRightCorner: monitor.visibleRect.maxX - 1
+                }
+                park(column, at: Rect(topLeftX: parkedX, topLeftY: monitor.visibleRect.maxY - 1, width: width, height: rect.height - 1), virtual: virtual)
             }
         }
         try await floatingWindowsContainer.layoutRecursive(rect.topLeftCorner, width: rect.width, height: rect.height - 1, virtual: rect, context)

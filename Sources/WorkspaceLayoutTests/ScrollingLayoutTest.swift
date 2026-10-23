@@ -4,6 +4,9 @@ import Common
 import Testing
 
 // The scrolling layout. Same serialized suite as the other layouts: the tests share the global tree and focus
+/// Where an out-of-view column goes on the 1920x1080 test monitor: the bottom-right corner, one point on screen
+private let parked = rect(1919, 1079, 960, 1080)
+
 extension WorkspaceLayoutTest {
     @Test func scrollingOpensANewColumnAfterTheFocusedOne() {
         let workspace = Workspace.get(byName: "scrolling")
@@ -32,7 +35,7 @@ extension WorkspaceLayoutTest {
         // 3 is the most recent window and the strip is 2880 wide, so it scrolls just enough to show 3
         try await workspace.layoutWorkspace()
         #expect(workspace.scrollOffset == 960)
-        expectRect(first.frame, rect(-959, 0, 960, 1080), "1 is parked left with one point on screen")
+        expectRect(first.frame, parked, "1 is parked in the bottom-right corner with one point on screen")
         expectRect(second.frame, rect(0, 0, 960, 1080))
         expectRect(third.frame, rect(960, 0, 960, 1080))
         #expect(diagram(frames: [second, third].map { (id: $0.windowId, rect: $0.frame!) }, screen: testScreen) == """
@@ -51,7 +54,7 @@ extension WorkspaceLayoutTest {
         +-----------------------+-----------------------+
         """)
         expectRect(first.lastAppliedLayoutVirtualRect, rect(-960, 0, 960, 1080), "where 1 would be without parking")
-        expectRect(first.lastAppliedLayoutPhysicalRect, rect(-959, 0, 960, 1080), "mouse hit-testing sees the parked frame")
+        expectRect(first.lastAppliedLayoutPhysicalRect, parked, "mouse hit-testing sees the parked frame")
         expectRect(third.lastAppliedLayoutVirtualRect, rect(960, 0, 960, 1080))
 
         // 2 is already in view, so focusing it moves nothing
@@ -69,7 +72,7 @@ extension WorkspaceLayoutTest {
         #expect(workspace.scrollOffset == 0)
         expectRect(first.frame, rect(0, 0, 960, 1080))
         expectRect(second.frame, rect(960, 0, 960, 1080))
-        expectRect(third.frame, rect(1919, 0, 960, 1080), "3 is parked right with one point on screen")
+        expectRect(third.frame, parked, "3 is parked with one point on screen")
         expectRect(third.lastAppliedLayoutVirtualRect, rect(1920, 0, 960, 1080))
         #expect(diagram(frames: [first, second].map { (id: $0.windowId, rect: $0.frame!) }, screen: testScreen) == """
         +-----------------------+-----------------------+
@@ -102,13 +105,13 @@ extension WorkspaceLayoutTest {
         #expect(workspace.scrollOffset == 0)
         expectRect(first.frame, rect(0, 0, 960, 1080))
         expectRect(second.frame, rect(970, 0, 960, 1080), "a gap after 1")
-        expectRect(third.frame, rect(1919, 0, 960, 1080), "3 starts at 1940, past the screen, so it is parked")
+        expectRect(third.frame, parked, "3 starts at 1940, past the screen, so it is parked")
 
         // The strip is 2900 wide, so showing 3 scrolls by 980 and cuts the gap's worth off 2
         #expect(third.focusWindow())
         try await workspace.layoutWorkspace()
         #expect(workspace.scrollOffset == 980)
-        expectRect(first.frame, rect(-959, 0, 960, 1080))
+        expectRect(first.frame, parked)
         expectRect(second.frame, rect(-10, 0, 960, 1080), "2 overlaps the screen, so it is laid out where it is rather than parked")
         expectRect(third.frame, rect(960, 0, 960, 1080))
     }
@@ -124,7 +127,7 @@ extension WorkspaceLayoutTest {
         try await workspace.layoutWorkspace()
         #expect(workspace.rootTilingContainer.children.map { $0.getWeight(.h) } == [960, 1920], "the weights are the widths now")
         #expect(workspace.scrollOffset == 960, "2 is focused and as wide as the screen")
-        expectRect(first.frame, rect(-959, 0, 960, 1080))
+        expectRect(first.frame, parked)
         expectRect(second.frame, rect(0, 0, 1920, 1080))
     }
 
@@ -210,7 +213,7 @@ extension WorkspaceLayoutTest {
         try await workspace.layoutWorkspace()
         expectRect(first.frame, rect(0, 0, 960, 1080))
         expectRect(second.frame, rect(960, 0, 960, 1080))
-        expectRect(third.frame, rect(1919, 0, 960, 1080), "parked")
+        expectRect(third.frame, parked, "parked")
 
         #expect(third.focusWindow())
         await run("join-with left")
@@ -269,7 +272,7 @@ extension WorkspaceLayoutTest {
         expectRect(second.frame, rect(0, 0, 1920, 1080))
         #expect(second.lastAppliedLayoutPhysicalRect == nil, "as layoutRecursive records a fullscreen window")
         expectRect(first.frame, rect(0, 0, 960, 1080), "the other columns stay where the strip puts them")
-        expectRect(third.frame, rect(1919, 0, 960, 1080))
+        expectRect(third.frame, parked)
         #expect(!third.isFullscreen, "only the focused window can be fullscreen")
 
         #expect(first.focusWindow())
