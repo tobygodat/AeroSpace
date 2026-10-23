@@ -88,6 +88,14 @@ let package = Package(
             ],
             swiftSettings: swiftSettings,
         ),
+        // Dev-only: renders the menu bar workspace bar with demo data
+        .executableTarget(
+            name: "WorkspaceBarPreview",
+            dependencies: [
+                .target(name: "AppBundle"),
+            ],
+            swiftSettings: swiftSettings,
+        ),
         .testTarget(
             name: "KeybindingEditorTests",
             dependencies: [

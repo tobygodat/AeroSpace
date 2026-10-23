@@ -15,6 +15,7 @@ public final class TrayMenuModel: ObservableObject {
     @Published var sponsorshipMessage: String = sponsorshipPrompts.randomElement().orDie()
     @Published var lastReloadConfigContainedWarnings: Bool = false
     @Published var axPermissionStatus: AxPermissionStatus = .waitingWithPrompt
+    @Published var isWorkspaceBarShown: Bool = false
 }
 
 enum AxPermissionStatus: Equatable {
@@ -68,6 +69,7 @@ enum AxPermissionStatus: Equatable {
         items.insert(mode, at: 0)
     }
     TrayMenuModel.shared.trayItems = items
+    TrayMenuModel.shared.isWorkspaceBarShown = updateWorkspaceBar()
 }
 
 struct WorkspaceViewModel: Hashable {
