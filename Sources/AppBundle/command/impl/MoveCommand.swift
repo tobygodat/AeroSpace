@@ -59,7 +59,7 @@ struct MoveCommand: Command {
                 case .stop: return .succ
                 case .fail: return .fail
                 case .createImplicitContainer:
-                    if workspace.layout == .scrolling { return .fail(io.err(scrollingHasNoRows)) }
+                    if workspace.layout == .scrolling { return scrollingStripEdge(direction, io) }
                     createImplicitContainerAndMoveWindow(window, workspace, direction)
                     return .succ
             }
@@ -91,14 +91,21 @@ struct MoveCommand: Command {
         case .stop: return .succ
         case .fail: return .fail
         case .createImplicitContainer:
-            if workspace.layout == .scrolling { return .fail(io.err(scrollingHasNoRows)) }
+            if workspace.layout == .scrolling { return scrollingStripEdge(direction, io) }
             createImplicitContainerAndMoveWindow(window, workspace, direction)
             return .succ
     }
 }
 
+/// The scrolling strip is never wrapped in an implicit container: it has no rows, and its ends are its ends
+@MainActor private func scrollingStripEdge(_ direction: CardinalDirection, _ io: CmdIo) -> BinaryExitCode {
+    switch direction.orientation {
+        case .h: .succ // Already the first or the last column
+        case .v: .fail(io.err("The scrolling layout has no rows to move into. Use 'join-with' to stack windows into a column, or 'move left'/'move right' between columns"))
+    }
+}
+
 private let moveOutMacosUnconventionalWindow = "moving macOS fullscreen, minimized windows and windows of hidden apps isn't yet supported. This behavior is subject to change"
-private let scrollingHasNoRows = "The scrolling layout has no rows to move into. Use 'join-with' to stack windows into a column, or 'move left'/'move right' between columns"
 
 @MainActor private func moveOut(
     tilingWindow window: Window,
