@@ -30,7 +30,9 @@ struct CapsLockRemap: Sendable {
             return .failure("Couldn't read the key remaps: \(error)")
         }
         let current = lists.first ?? []
-        guard lists.allSatisfy({ Set($0) == Set(current) }) else {
+        // Caps Lock's own entry may differ: a keyboard plugged in after the remap doesn't have it yet
+        let withoutCapsLock = { (list: [HidKeyMapping]) in Set(list.filter { $0.src != capsLockUsage }) }
+        guard lists.allSatisfy({ withoutCapsLock($0) == withoutCapsLock(current) }) else {
             return .failure("Your keyboards have different key remaps (System Settings → Keyboard → Keyboard Shortcuts → Modifier Keys), so Caps Lock was left alone")
         }
         if readMarker() == nil {
@@ -43,7 +45,7 @@ struct CapsLockRemap: Sendable {
             }
         }
         let remapped = current.filter { $0.src != capsLockUsage } + [HidKeyMapping(src: capsLockUsage, dst: f18Usage)]
-        if remapped == current { return .success(()) }
+        if lists.allSatisfy({ Set($0) == Set(remapped) }) { return .success(()) }
         do {
             try setKeyboardMappings(remapped)
             return .success(())

@@ -42,7 +42,11 @@ final class SuperKeyRuntime: ObservableObject {
         }
         let superKey = config.superKey
         let sources = config.usesSuperModifier ? superKey.tapSources : []
-        if status == .on(superKey), tap?.sources == sources, tap?.isEnabled == true { return }
+        if status == .on(superKey), tap?.sources == sources, tap?.isEnabled == true {
+            // Puts the remap back on keyboards that lost it, e.g. one plugged in since
+            if sources.contains(.capsLock), case .failure(let msg) = remap.apply() { fail(msg) }
+            return
+        }
         if let error = tearDown() {
             status = .failed(error)
             return

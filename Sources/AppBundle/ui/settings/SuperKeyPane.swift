@@ -38,6 +38,10 @@ final class SuperKeyPaneModel: ObservableObject {
             report(result, success: "")
             return
         }
+        if swap.swapped.isEmpty {
+            status = ("Nothing to convert: Super already has those keys", true)
+            return
+        }
         converted = swap.swapped
         let skipped = swap.skipped.isEmpty ? "" : ". Kept \(swap.skipped.map { prettyShortcut($0.key) }.joined(separator: " ")): Super already has those keys"
         report(result, success: "Converted \(count(swap.swapped.count)) to ◆" + skipped)

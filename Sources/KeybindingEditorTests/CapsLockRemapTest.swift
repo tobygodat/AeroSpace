@@ -190,3 +190,21 @@ private final class FakeHidutil: @unchecked Sendable {
         #expect(userKeyMappingJson([capsToF18]) == #"{"UserKeyMapping":[{"HIDKeyboardModifierMappingSrc":30064771129,"HIDKeyboardModifierMappingDst":30064771181}]}"#)
     }
 }
+
+@Suite final class CapsLockRemapNewKeyboardTest {
+    private let markerUrl = FileManager.default.temporaryDirectory.appending(path: "caps-lock-remap-\(UUID().uuidString).json")
+
+    deinit { try? FileManager.default.removeItem(at: markerUrl) }
+
+    /// A keyboard plugged in after the remap has no Caps Lock entry yet. Applying again covers it instead of refusing
+    @Test func keyboardPluggedInLaterGetsTheRemap() {
+        let fake = FakeHidutil([[swapAB]])
+        let remap = CapsLockRemap(hidutil: { try fake.run($0) }, markerUrl: markerUrl)
+        _ = remap.apply()
+        fake.keyboards.append([swapAB])
+        #expect(remap.apply().failureOrNil == nil)
+        #expect(fake.keyboards == [[swapAB, capsToF18], [swapAB, capsToF18]])
+        _ = remap.restore()
+        #expect(fake.keyboards == [[swapAB], [swapAB]])
+    }
+}
