@@ -11,13 +11,12 @@ struct KeybindingPreset: Identifiable {
 
 @MainActor func keybindingPresets() -> [KeybindingPreset] {
     [
-        KeybindingPreset(name: "Omarchy", bindings: omarchyBindings()),
+        KeybindingPreset(name: "Omarchy", bindings: omarchyBindings(superKey: "super")),
     ]
 }
 
-/// Mirrors the Hyprland bindings shipped by Omarchy (https://github.com/basecamp/omarchy), translated to AeroSpace commands.
-/// `superKey` is the modifier the bindings start with. The config's `super-key` says which physical key Super is
-@MainActor func omarchyBindings(superKey s: String = "super") -> [(key: String, command: String)] {
+/// Mirrors the Hyprland bindings shipped by Omarchy (https://github.com/basecamp/omarchy), translated to AeroSpace commands
+@MainActor func omarchyBindings(superKey s: String) -> [(key: String, command: String)] {
     var result: [(key: String, command: String)] = [
         ("\(s)-enter", presetTerminalCommand()),
         ("\(s)-b", presetBrowserCommand()),

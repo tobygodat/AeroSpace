@@ -102,6 +102,7 @@ struct KeybindingEditorView: View {
         .onAppear { model.loadIfClean() }
         .onDisappear { model.stopRecording() }
         .onChange(of: model.selectedBindingId) { _ in stickyCategory = nil }
+        .onChange(of: pane) { _ in model.stopRecording() }
     }
 
     // MARK: Sidebar
@@ -136,10 +137,7 @@ struct KeybindingEditorView: View {
 
             SidebarLabel("Settings").padding(.top, 18)
             ForEach(SettingsPane.allCases) { item in
-                SidebarItem(icon: item.icon, title: item.title, trailing: nil, isSelected: pane == item) {
-                    model.stopRecording()
-                    pane = item
-                }
+                SidebarItem(icon: item.icon, title: item.title, trailing: nil, isSelected: pane == item) { pane = item }
             }
 
             SidebarLabel("Presets").padding(.top, 18)

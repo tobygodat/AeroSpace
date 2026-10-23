@@ -27,13 +27,14 @@ final class KeybindingEditorModel: ObservableObject {
     private var waitingConfigEdits: [CheckedContinuation<Void, Never>] = []
     private let configUrlProvider: @MainActor () -> Result<URL, String>
     private let afterSave: @MainActor () async -> Void
-    /// `super-key` of the loaded config
-    private(set) var superKey: SuperKey = Config().superKey
 
     init(configUrlProvider: @escaping @MainActor () -> Result<URL, String>, afterSave: @escaping @MainActor () async -> Void) {
         self.configUrlProvider = configUrlProvider
         self.afterSave = afterSave
     }
+
+    /// `super-key` of the loaded config
+    private(set) var superKey: SuperKey = Config().superKey
 
     var isDirty: Bool { modes != savedModes }
 

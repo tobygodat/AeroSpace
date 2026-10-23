@@ -7,10 +7,10 @@
 // --appearance light|dark
 // --select N  expands the Nth binding of the main mode
 // --pane NAME  opens a Settings pane instead of the bindings (e.g. workspaces)
-// --super-status on|failed  shows that Super key state (no event tap or key remap is started)
 // --edit N=command  with --demo: which binding's command to change (default 1=fullscreen)
 // --dump      prints the first bindings of the main mode
 // --redraw    forces a full layout and redraw before the snapshot
+// --super-status on|failed  shows that Super key state (no event tap or key remap is started)
 @testable import AppBundle
 import AppKit
 import SwiftUI

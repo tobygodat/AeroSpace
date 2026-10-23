@@ -66,7 +66,7 @@ private func binding(_ result: ParseConfigResult, _ key: String) -> HotkeyBindin
     }
 
     @Test func omarchyPresetUsesSuper() {
-        let bindings = omarchyBindings()
+        let bindings = omarchyBindings(superKey: "super")
         #expect(bindings.allSatisfy { $0.key.hasPrefix("super-") })
         #expect(bindings.contains { $0.key == "super-shift-1" })
         #expect(bindings.contains { $0.key == "super-ctrl-tab" })
