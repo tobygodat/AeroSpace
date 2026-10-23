@@ -59,6 +59,7 @@ struct MoveCommand: Command {
                 case .stop: return .succ
                 case .fail: return .fail
                 case .createImplicitContainer:
+                    if workspace.layout == .scrolling { return .fail(io.err(scrollingHasNoRows)) }
                     createImplicitContainerAndMoveWindow(window, workspace, direction)
                     return .succ
             }
@@ -74,7 +75,7 @@ struct MoveCommand: Command {
 
                 return MoveNodeToMonitorCommand(args: moveNodeToMonitorArgs).run(env, io)
             } else {
-                return hitAllMonitorsOuterFrameBoundaries(window, workspace, args, direction)
+                return hitAllMonitorsOuterFrameBoundaries(window, workspace, io, args, direction)
             }
     }
 }
@@ -82,6 +83,7 @@ struct MoveCommand: Command {
 @MainActor private func hitAllMonitorsOuterFrameBoundaries(
     _ window: Window,
     _ workspace: Workspace,
+    _ io: CmdIo,
     _ args: MoveCmdArgs,
     _ direction: CardinalDirection,
 ) -> BinaryExitCode {
@@ -89,12 +91,14 @@ struct MoveCommand: Command {
         case .stop: return .succ
         case .fail: return .fail
         case .createImplicitContainer:
+            if workspace.layout == .scrolling { return .fail(io.err(scrollingHasNoRows)) }
             createImplicitContainerAndMoveWindow(window, workspace, direction)
             return .succ
     }
 }
 
 private let moveOutMacosUnconventionalWindow = "moving macOS fullscreen, minimized windows and windows of hidden apps isn't yet supported. This behavior is subject to change"
+private let scrollingHasNoRows = "The scrolling layout has no rows to move into. Use 'join-with' to stack windows into a column, or 'move left'/'move right' between columns"
 
 @MainActor private func moveOut(
     tilingWindow window: Window,
