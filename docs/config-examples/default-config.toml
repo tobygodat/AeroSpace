@@ -47,12 +47,16 @@ on-focused-monitor-changed = ['move-mouse monitor-lazy-center']
 automatically-unhide-macos-hidden-apps = false
 
 # List of workspaces that should stay alive even when they contain no windows,
-# even when they are invisible.
+# even when they are invisible. They always show in the menu bar.
 # This config option is only available since 'config-version = 2'
 # Fallback value (if you omit the key): persistent-workspaces = []
-persistent-workspaces = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B",
-                         "C", "D", "E", "F", "G", "I", "M", "N", "O", "P", "Q",
-                         "R", "S", "T", "U", "V", "W", "X", "Y", "Z"]
+persistent-workspaces = ["1", "2", "3", "4", "5"]
+
+# Menu bar: one group per workspace with the icons of the apps on it. Click a group to switch to it.
+# Persistent workspaces always show; others show while they have windows or are on a monitor.
+# Fallback values (if you omit the keys): workspace-bar.enabled = true, workspace-bar.app-icons = true
+workspace-bar.enabled = true
+workspace-bar.app-icons = true
 
 # A callback that runs every time binding mode changes
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes

@@ -15,7 +15,7 @@ change every hotkey from a GUI instead of hand-editing TOML.
 
 ## Phase 1: Keybinding editor (the "GUI for hotkeys"). Built; not yet tried inside the running WM
 
-Menu bar → **Keybindings…** (⌘K) opens a window listing every binding per mode. Click a shortcut and
+Menu bar → **Settings…** (⌘K) opens a window listing every binding per mode. Click a shortcut and
 press the new keys (Esc cancels), use ⚡ to pick an action (Open app…, workspaces, window commands), or
 type a command. **Presets** loads Omarchy with ⌥ or ⌘ as Super. Duplicate shortcuts and invalid commands
 are flagged inline and block Save. Save edits only the changed lines of the config, backs up the original
@@ -50,6 +50,50 @@ Original design notes:
 | Conflict warnings | Flag duplicates, and Option+arrow / Option+letter clashes with text editing |
 | Presets | "Omarchy (Option)", "Omarchy (Cmd)", "Omarchy (Hyper)", "AeroSpace default" |
 
+## Workspace bar. Built; not yet tried inside the running WM
+
+The menu bar shows one group per workspace: its name and the icons of the apps on it, one icon per app. Up to 3
+icons, then "+N". Persistent workspaces always show, even when empty; other workspaces show while they have windows or
+are on a monitor. The focused workspace gets a filled pill, a workspace shown on another monitor an outlined one, and
+empty ones are dimmed. Click a group to switch to it. While the bar is shown, the AeroSpace menu item shrinks to a
+glyph (or the binding-mode letter). macOS hides a status item that doesn't fit instead of truncating it, so when the
+bar is wider than half the menu bar right of the notch (a quarter of a menu bar without one), it shows one icon per
+workspace, then names only.
+
+**Settings… → Workspaces** sets the number of persistent workspaces (1–9) and the two bar options, with a live preview
+of the bar. Other persistent workspaces (like the A–Z of older default configs) are listed under the count with a
+Remove button. Every change is written to the config right away through `KeybindingEditorModel.editConfig`: it
+applies only the field you changed to the file as it is on disk, refuses while there are unsaved binding edits, writes
+one change at a time, backs up once to `<config>.bak-keybindings`, then the config reloads. Raising the count adds
+missing Super+N / Super+Shift+N bindings for the new workspaces by copying the modifiers and flags of the ones you
+already have. It never removes bindings. A `persistent-workspaces` list with comments inside it is left for you to edit
+by hand. A config-version 1 config becomes version 2 with only 1…count persistent.
+
+```toml
+persistent-workspaces = ["1", "2", "3", "4", "5"]   # the count in Settings → Workspaces
+workspace-bar.enabled = true                       # false: the classic AeroSpace menu bar label
+workspace-bar.app-icons = true                     # false: workspace names only
+```
+
+| File | What |
+|---|---|
+| `Sources/AppBundle/ui/workspaceBar/WorkspaceBarModel.swift` | Grouping and layout as plain functions, and click hit testing |
+| `Sources/AppBundle/ui/workspaceBar/WorkspaceBarView.swift` | Draws the bar and handles clicks; `InlineWorkspaceBar` reuses it in Settings |
+| `Sources/AppBundle/ui/workspaceBar/WorkspaceBarStatusItem.swift` | Its own `NSStatusItem`, fed from `updateTrayText()` after every refresh |
+| `Sources/AppBundle/config/parseWorkspaceBar.swift` | `workspace-bar.*` keys |
+| `Sources/AppBundle/config/editableWorkspaceSettings.swift` | Read/rewrite the count, bar options and workspace hotkeys; verified by re-parsing |
+| `Sources/AppBundle/ui/settings/SettingsPane.swift` | Panes under "Settings" in the sidebar. A new pane is one enum case plus a view in its own file; it writes the config with `editor.editConfig { text in ... }` |
+| `Sources/AppBundle/ui/settings/WorkspacesPane.swift` | The Workspaces pane |
+| `Sources/WorkspaceBarPreview/main.swift` | Dev harness: `--snapshot out.png` renders the bar states; `--live 30` shows a demo bar in the menu bar for 30 s |
+
+The bar is a separate status item instead of the SwiftUI `MenuBarExtra` label because that label is one button that
+opens the menu, so it can't have a click target per workspace.
+
+```sh
+swift run KeybindingEditorPreview --config /tmp/scratch.toml --pane workspaces
+swift run WorkspaceBarPreview --snapshot /tmp/bar.png
+```
+
 ## Phase 2: Launcher (replaces Raycast for apps)
 
 - New command `launcher`, bound to Super+Space by default.
@@ -60,7 +104,7 @@ Original design notes:
 
 ## Phase 3: Omarchy polish
 
-- Clickable workspace bar (Waybar-style 1–5 indicator) built on `MenuBarLabel.swift`.
+- ~~Clickable workspace bar (Waybar-style 1–5 indicator).~~ Built, see Workspace bar above.
 - "Keybindings" cheat-sheet overlay (Omarchy's Super+K).
 - Super+Space menu (Omarchy menu) for theme, gaps toggle, reload, and service-mode actions.
 

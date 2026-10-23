@@ -23,6 +23,8 @@ final class KeybindingEditorModel: ObservableObject {
     private var keyMapping: [String: Key] = KeyMapping().resolve()
     private var keyMonitor: Any? = nil
     private var didBackUp: Bool = false
+    private var isEditingConfig = false
+    private var waitingConfigEdits: [CheckedContinuation<Void, Never>] = []
     private let configUrlProvider: @MainActor () -> Result<URL, String>
     private let afterSave: @MainActor () async -> Void
 
@@ -301,6 +303,51 @@ final class KeybindingEditorModel: ObservableObject {
         keyMapping = parsed.config.keyMapping.resolve()
         status = ("Saved to \(url.displayPath)", false)
         await afterSave()
+    }
+
+    // MARK: Edits from Settings panes
+
+    /// Applies `change` to the config file as it is on disk now, writes the result, and reloads the config.
+    /// Edits run one at a time in call order. Refused while bindings have unsaved edits, which the write would strand
+    func editConfig(_ change: @MainActor (String) -> Result<String, String>) async -> Result<String, String> {
+        if isEditingConfig {
+            await withCheckedContinuation { waitingConfigEdits.append($0) }
+        }
+        isEditingConfig = true
+        defer {
+            if waitingConfigEdits.isEmpty {
+                isEditingConfig = false
+            } else {
+                waitingConfigEdits.removeFirst().resume()
+            }
+        }
+        if isDirty { return .failure("Save or revert your keybinding changes first") }
+        if configFileUrl == nil { load() }
+        guard let url = configFileUrl else { return .failure(loadError ?? "Can't find the config file") }
+        let resolvedUrl = url.resolvingSymlinksInPath()
+        guard let text = try? String(contentsOf: resolvedUrl, encoding: .utf8) else { return .failure("Can't read \(url.displayPath)") }
+        let newText: String
+        switch change(text) {
+            case .failure(let msg): return .failure(msg)
+            case .success(let it): newText = it
+        }
+        if newText == text { return .success(text) }
+        let errors = parseConfig(newText).errors
+        if !errors.isEmpty { return .failure(errors.map { $0.description(.error) }.joined(separator: "\n")) }
+        do {
+            if !didBackUp {
+                let backupUrl = resolvedUrl.appendingPathExtension("bak-keybindings")
+                try? FileManager.default.removeItem(at: backupUrl)
+                try FileManager.default.copyItem(at: resolvedUrl, to: backupUrl)
+                didBackUp = true
+            }
+            try newText.write(to: resolvedUrl, atomically: true, encoding: .utf8)
+        } catch {
+            return .failure("Couldn't save: \(error.localizedDescription)")
+        }
+        load()
+        await afterSave()
+        return .success(newText)
     }
 }
 

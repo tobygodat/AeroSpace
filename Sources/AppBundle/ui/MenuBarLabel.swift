@@ -10,7 +10,7 @@ struct MenuBarLabel: View {
     let style: MenuBarStyle?
 
     let hStackSpacing = CGFloat(6)
-    let itemSize = CGFloat(40)
+    var itemSize: CGFloat { showsWorkspaceBarCompanion ? 30 : 40 }
     let itemBorderSize = CGFloat(3)
     let itemCornerRadius = CGFloat(6)
 
@@ -25,7 +25,7 @@ struct MenuBarLabel: View {
 
     var body: some View {
         if #available(macOS 14, *) { // https://github.com/nikitabobko/AeroSpace/issues/1122
-            let renderer = ImageRenderer(content: menuBarContent)
+            let renderer = ImageRenderer(content: labelContent)
             switch renderer.cgImage {
                 // Using scale: 1 results in a blurry image for unknown reasons
                 case let cgImage?: Image(cgImage, scale: 2, label: Text(viewModel.trayText))
@@ -35,6 +35,31 @@ struct MenuBarLabel: View {
             }
         } else { // macOS 13 and lower
             Text(viewModel.trayText)
+        }
+    }
+
+    /// The workspace bar shows the workspaces, so the label only marks the AeroSpace menu, or the binding mode
+    private var showsWorkspaceBarCompanion: Bool { style == nil && viewModel.isWorkspaceBarShown }
+
+    @ViewBuilder
+    private var labelContent: some View {
+        if showsWorkspaceBarCompanion {
+            workspaceBarCompanion
+        } else {
+            menuBarContent
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceBarCompanion: some View {
+        if let modeItem = viewModel.trayItems.first(where: { $0.type == .mode }) {
+            itemView(for: modeItem)
+        } else {
+            Image(systemName: "rectangle.split.3x1")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(finalColor)
+                .frame(width: itemSize, height: itemSize)
         }
     }
 
