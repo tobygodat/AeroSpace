@@ -44,6 +44,11 @@ struct ResizeCommand: Command {
             case .subtract(let unit): -CGFloat(unit)
         }
 
+        if parent.isRootContainer && orientation == .h, let workspace = parent.nodeWorkspace, workspace.layout == .scrolling {
+            // A column's width is its own: the strip grows, the other columns don't shrink
+            node.setWeight(.h, (node.getWeight(.h) + diff).coerce(in: workspace.scrollingColumnWidths))
+            return .succ
+        }
         guard let childDiff = diff.div(parent.children.count - 1) else { return .fail }
         parent.children.lazy
             .filter { $0 != node }

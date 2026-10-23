@@ -242,22 +242,98 @@ extension WorkspaceLayoutTest {
         expectRect(third.frame, rect(1280, 0, 640, 1080))
     }
 
-    @Test func theStripStaysHorizontalTilesWhateverLayoutDoesToTheRoot() async throws {
-        // A lone column is a direct child of the root, so `layout accordion` or `layout vertical` on it hits the root
+    @Test func theStripStaysAHorizontalRowOfColumns() async throws {
+        // A lone column is a direct child of the root, so `layout accordion` or `layout vertical` on it would hit the root
         let workspace = Workspace.get(byName: "scrolling")
         #expect(workspace.focusWorkspace())
         workspace.layoutOverride = .scrolling
         let first = workspace.openWindow(id: 1)
         let second = workspace.openWindow(id: 2)
         #expect(second.focusWindow())
-        await run("layout accordion")
-        await run("layout vertical")
-        #expect(workspace.rootTilingContainer.layout == .accordion && workspace.rootTilingContainer.orientation == .v)
-
-        try await workspace.layoutWorkspace()
+        let stderr = await run("layout accordion", expectSuccess: false)
+        #expect(stderr.first?.contains("join-with") == true, "\(stderr)")
+        await run("layout vertical", expectSuccess: false)
+        await run("layout --root accordion", expectSuccess: false)
         #expect(workspace.rootTilingContainer.layout == .tiles && workspace.rootTilingContainer.orientation == .h)
-        expectRect(first.frame, rect(0, 0, 960, 1080))
-        expectRect(second.frame, rect(960, 0, 960, 1080))
+
+        // A column of its own can be an accordion
+        await run("join-with left")
+        await run("layout accordion")
+        let column = try #require(workspace.rootTilingContainer.children.first as? TilingContainer)
+        #expect(column.layout == .accordion && column.orientation == .v)
+        #expect(workspace.rootTilingContainer.layout == .tiles && workspace.rootTilingContainer.orientation == .h)
+
+        // With the stock normalization on, a strip of one column keeps its root rather than becoming that column
+        config.enableNormalizationFlattenContainers = true
+        config.enableNormalizationOppositeOrientationForNestedContainers = true
+        workspace.normalizeContainers()
+        #expect(workspace.rootTilingContainer.children == [column], "the strip is not flattened into its only column")
+        try await workspace.layoutWorkspace()
+        #expect(first.frame?.minX == 0 && first.frame?.width == 960, "the column keeps its width; the accordion pads its tabs vertically")
+        #expect(second.frame?.width == 960)
+    }
+
+    @Test func resizeWidthChangesOneColumnOnly() async throws {
+        let workspace = Workspace.get(byName: "scrolling")
+        #expect(workspace.focusWorkspace())
+        workspace.layoutOverride = .scrolling
+        let first = workspace.openWindow(id: 1)
+        let second = workspace.openWindow(id: 2)
+        try await workspace.layoutWorkspace()
+        #expect(second.focusWindow())
+
+        await run("resize width 1200")
+        try await workspace.layoutWorkspace()
+        #expect(workspace.scrollOffset == 240, "the strip is 2160 wide now and 2 is focused")
+        expectRect(first.frame, rect(-240, 0, 960, 1080), "1 keeps its width and peeks in from the left")
+        expectRect(second.frame, rect(720, 0, 1200, 1080))
+
+        await run("resize width -2000")
+        try await workspace.layoutWorkspace()
+        #expect(second.frame?.width == 192, "no narrower than the smallest scrolling-column-width")
+        await run("resize width +5000")
+        try await workspace.layoutWorkspace()
+        #expect(second.frame?.width == 1920, "no wider than the screen")
+
+        #expect(first.focusWindow())
+        await run("resize width 300")
+        try await workspace.layoutWorkspace()
+        expectRect(first.frame, rect(0, 0, 300, 1080), "a single column resizes too, and nothing else changed")
+        expectRect(second.frame, rect(300, 0, 1920, 1080))
+    }
+
+    @Test func leavingScrollingForFloatingPullsParkedColumnsOnScreen() async throws {
+        let workspace = Workspace.get(byName: "scrolling")
+        #expect(workspace.focusWorkspace())
+        workspace.layoutOverride = .scrolling
+        let first = workspace.openWindow(id: 1)
+        let second = workspace.openWindow(id: 2)
+        let third = workspace.openWindow(id: 3)
+        try await workspace.layoutWorkspace()
+        expectRect(first.frame, parked)
+
+        await run("workspace-layout floating")
+        try await workspace.layoutWorkspace()
+        #expect(workspace.floatingWindowIds == [1, 2, 3])
+        expectRect(first.frame, rect(960, 0, 960, 1080), "1 comes back where the strip had it, pulled onto the screen")
+        expectRect(second.frame, rect(0, 0, 960, 1080), "2 and 3 float where they stood")
+        expectRect(third.frame, rect(960, 0, 960, 1080))
+    }
+
+    @Test func disablingTheWindowManagerLeavesNoColumnParked() async throws {
+        let workspace = Workspace.get(byName: "scrolling")
+        #expect(workspace.focusWorkspace())
+        workspace.layoutOverride = .scrolling
+        let first = workspace.openWindow(id: 1)
+        workspace.openWindow(id: 2)
+        workspace.openWindow(id: 3)
+        try await workspace.layoutWorkspace()
+        expectRect(first.frame, parked)
+
+        TrayMenuModel.shared.isEnabled = false
+        defer { TrayMenuModel.shared.isEnabled = true }
+        try await workspace.layoutWorkspace()
+        expectRect(first.frame, rect(0, 0, 960, 1080), "reachable, at the edge it would scroll in from")
     }
 
     @Test func fullscreenWinsTheWholeScreenInAScrollingWorkspace() async throws {

@@ -40,8 +40,8 @@ extension Workspace {
         var total: CGFloat = 0
         for column in root.children {
             let weight = column.getWeight(.h)
-            // WEIGHT_AUTO into an empty root and a flattened container both leave a weight of 1
-            let width = min(weight < rect.width / 10 ? defaultScrollingColumnWidth : weight, rect.width)
+            // WEIGHT_AUTO into an empty root and a tiles rebuild both leave a weight of 1, which means "unsized" here
+            let width = weight <= 1 ? defaultScrollingColumnWidth : weight.coerce(in: scrollingColumnWidths)
             column.setWeight(.h, width)
             let start = starts.isEmpty ? 0 : total + gap
             starts.append(start)
@@ -83,6 +83,10 @@ extension Workspace {
             let inView = x < rect.maxX && x + width > rect.minX && (x >= rect.minX || spillAllowed.left) && (x + width <= rect.maxX || spillAllowed.right)
             if inView {
                 try await column.layoutRecursive(CGPoint(x: x, y: rect.minY), width: width, height: rect.height - 1, virtual: virtual, context)
+            } else if !TrayMenuModel.shared.isEnabled {
+                // `enable off` must leave every window reachable: the column comes on screen instead of being parked
+                let onScreenX = x.coerce(in: rect.minX ... max(rect.minX, rect.maxX - width))
+                try await column.layoutRecursive(CGPoint(x: onScreenX, y: rect.minY), width: width, height: rect.height - 1, virtual: virtual, context)
             } else {
                 let parkedX = switch corner {
                     case .bottomLeftCorner: monitor.visibleRect.minX + 1 - width

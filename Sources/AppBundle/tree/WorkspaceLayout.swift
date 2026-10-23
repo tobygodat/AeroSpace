@@ -102,10 +102,21 @@ extension Workspace {
     /// Windows that float for their own reasons (dialogs, `layout floating`) aren't touched and aren't marked
     @MainActor
     private func floatTilingWindows() {
+        let screen = workspaceMonitor.visibleRectPaddedByOuterGaps
         for window in rootTilingContainer.allLeafWindowsRecursive {
             window.lastFloatingSize = window.lastAppliedLayoutPhysicalRect?.size ?? window.lastFloatingSize
             window.bindAsFloatingWindow(to: self)
             window.floatedByLayout = true
+            // A column the scrolling layout parked off screen would float there, out of reach: pull it onto the screen
+            if let frame = window.lastAppliedLayoutPhysicalRect {
+                let onScreen = CGPoint(
+                    x: frame.minX.coerce(in: screen.minX ... max(screen.minX, screen.maxX - frame.width)),
+                    y: frame.minY.coerce(in: screen.minY ... max(screen.minY, screen.maxY - frame.height)),
+                )
+                if onScreen != frame.topLeftCorner {
+                    window.setAxFrame(onScreen, nil)
+                }
+            }
         }
         for container in rootTilingContainer.children {
             container.unbindFromParent()
@@ -146,6 +157,13 @@ extension Workspace {
     @MainActor
     var defaultScrollingColumnWidth: CGFloat {
         (CGFloat(config.scrollingColumnWidthPercent) / 100 * workspaceMonitor.visibleRectPaddedByOuterGaps.width).rounded()
+    }
+
+    /// A sized column is between the narrowest `scrolling-column-width` and the screen
+    @MainActor
+    var scrollingColumnWidths: ClosedRange<CGFloat> {
+        let width = workspaceMonitor.visibleRectPaddedByOuterGaps.width
+        return (width * CGFloat(scrollingColumnWidthRange.lowerBound) / 100).rounded() ... width
     }
 
     @MainActor

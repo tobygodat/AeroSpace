@@ -2,7 +2,7 @@
 include::util/man-attributes.adoc[]
 :manname: aerospace-workspace-layout
 // tag::purpose[]
-:manpurpose: Change the layout of a whole workspace: tiles, dwindle or floating
+:manpurpose: Change the layout of a whole workspace: tiles, dwindle, scrolling or floating
 // end::purpose[]
 
 // =========================================================== Synopsis

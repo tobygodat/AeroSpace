@@ -77,11 +77,14 @@ private func moveTilingWindow(_ window: Window) {
 func swapWindows(mruDominant window1: Window, _ window2: Window) {
     if window1 == window2 { return }
 
+    // Columns of a scrolling strip take their width along; everywhere else the slots keep their weights
+    let isStrip = window1.parent === window2.parent && (window1.parent as? TilingContainer)?.isRootContainer == true &&
+        window1.nodeWorkspace?.layout == .scrolling
     let binding2 = window2.unbindFromParent()
     let binding1 = window1.unbindFromParent()
 
-    window2.bind(to: binding1.parent, adaptiveWeight: binding1.adaptiveWeight, index: binding1.index)
-    window1.bind(to: binding2.parent, adaptiveWeight: binding2.adaptiveWeight, index: binding2.index)
+    window2.bind(to: binding1.parent, adaptiveWeight: isStrip ? binding2.adaptiveWeight : binding1.adaptiveWeight, index: binding1.index)
+    window1.bind(to: binding2.parent, adaptiveWeight: isStrip ? binding1.adaptiveWeight : binding2.adaptiveWeight, index: binding2.index)
 }
 
 extension CGPoint {
