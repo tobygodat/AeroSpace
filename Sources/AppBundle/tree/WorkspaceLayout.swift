@@ -40,10 +40,36 @@ extension Workspace {
     ///   the user would have gotten by opening them one by one
     /// - floating: binds every tiling window to the floating container, keeping their frames, and records them
     /// Leaving floating first tiles the recorded windows (in recorded order) with the target policy.
-    /// Idempotent: applying the current layout again changes nothing.
     @MainActor
     func applyLayout(_ target: WorkspaceLayout) {
-        die("TODO(AERO-4 engine): applyLayout")
+        let tiling = rootTilingContainer.allLeafWindowsRecursive
+        if target == .floating {
+            for window in tiling {
+                window.lastFloatingSize = window.lastAppliedLayoutPhysicalRect?.size ?? window.lastFloatingSize
+                window.bindAsFloatingWindow(to: self)
+                if !windowsFloatedByLayout.contains(window.windowId) {
+                    windowsFloatedByLayout.append(window.windowId)
+                }
+            }
+            return
+        }
+        let returning = windowsFloatedByLayout.compactMap { id in floatingWindows.first { $0.windowId == id } }
+        windowsFloatedByLayout = []
+        let windows = tiling + returning
+        for window in windows {
+            window.unbindFromParent()
+        }
+        // Only empty containers are left in the root. Dwindle counts the root's children, so they go now rather
+        // than at the next normalization
+        for container in rootTilingContainer.children {
+            container.unbindFromParent()
+        }
+        for window in windows {
+            let data = target == .tiles
+                ? BindingData(parent: rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
+                : dwindleBindingData()
+            window.bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
+        }
     }
 
     /// Where a new tiling window goes on this workspace. `window` is already unbound, or nil for a window that is
@@ -54,7 +80,59 @@ extension Workspace {
     /// - floating: the floating container; the window id is appended to `windowsFloatedByLayout`
     @MainActor
     func bindingDataForNewTilingWindow(windowId: UInt32, window: Window?) -> BindingData {
-        die("TODO(AERO-4 engine): bindingDataForNewTilingWindow")
+        switch layout {
+            case .tiles: tilesBindingData()
+            case .dwindle: dwindleBindingData()
+            case .floating: floatingBindingData(windowId: windowId)
+        }
+    }
+
+    @MainActor
+    private func tilesBindingData() -> BindingData {
+        let mruWindow = mostRecentWindowRecursive
+        if let mruWindow, let tilingParent = mruWindow.parent as? TilingContainer {
+            return BindingData(
+                parent: tilingParent,
+                adaptiveWeight: WEIGHT_AUTO,
+                index: mruWindow.ownIndex.orDie() + 1,
+            )
+        } else {
+            return BindingData(
+                parent: rootTilingContainer,
+                adaptiveWeight: WEIGHT_AUTO,
+                index: INDEX_BIND_LAST,
+            )
+        }
+    }
+
+    /// Hyprland's dwindle: split the most recent window's area along its longer side. A lone window in its
+    /// container just gets a sibling and the container takes the split orientation. Otherwise the window is
+    /// wrapped in a new container that keeps its slot and weight, and the new window joins it as an equal half
+    @MainActor
+    private func dwindleBindingData() -> BindingData {
+        guard let mru = rootTilingContainer.mostRecentWindowRecursive, let parent = mru.parent as? TilingContainer else {
+            return BindingData(parent: rootTilingContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        }
+        let rect = mru.estimatedVirtualRect
+        let orientation: Orientation = rect.width >= rect.height ? .h : .v
+        if parent.children.count == 1 {
+            parent.setOrientationOnly(orientation)
+            return BindingData(parent: parent, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+        }
+        let index = mru.ownIndex.orDie()
+        let weight = mru.getWeight(parent.orientation)
+        mru.unbindFromParent()
+        let container = TilingContainer(parent: parent, adaptiveWeight: weight, orientation, .tiles, index: index)
+        mru.bind(to: container, adaptiveWeight: WEIGHT_AUTO, index: 0)
+        return BindingData(parent: container, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+    }
+
+    @MainActor
+    private func floatingBindingData(windowId: UInt32) -> BindingData {
+        if !windowsFloatedByLayout.contains(windowId) {
+            windowsFloatedByLayout.append(windowId)
+        }
+        return BindingData(parent: floatingWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
     }
 }
 
@@ -64,7 +142,23 @@ extension TreeNode {
     /// rebuilds between layout passes
     @MainActor
     var estimatedVirtualRect: Rect {
-        die("TODO(AERO-4 engine): estimatedVirtualRect")
+        if let workspace = self as? Workspace {
+            return workspace.workspaceMonitor.visibleRectPaddedByOuterGaps
+        }
+        guard let parent else { die("\(self) is unbound, it has no rect") }
+        let rect = parent.estimatedVirtualRect
+        guard case .tilingContainer(let container) = parent.cases, container.layout == .tiles else { return rect }
+        // layoutTiles doesn't split proportionally: it adds (available - sum of weights) / count to every child
+        let orientation = container.orientation
+        let weights = container.children.map { $0.getWeight(orientation) }
+        let delta = (rect.getDimension(orientation) - weights.sumOfDouble { $0 }) / CGFloat(weights.count)
+        let index = ownIndex.orDie()
+        let offset = weights[..<index].sumOfDouble { $0 } + delta * CGFloat(index)
+        let size = weights[index] + delta
+        return switch orientation {
+            case .h: Rect(topLeftX: rect.topLeftX + offset, topLeftY: rect.topLeftY, width: size, height: rect.height)
+            case .v: Rect(topLeftX: rect.topLeftX, topLeftY: rect.topLeftY + offset, width: rect.width, height: size)
+        }
     }
 }
 
