@@ -6,6 +6,7 @@ extension WorkspaceLayout {
         switch self {
             case .tiles: "Tiles"
             case .dwindle: "Dwindle"
+            case .scrolling: "Scrolling"
             case .floating: "Floating"
         }
     }
@@ -14,6 +15,7 @@ extension WorkspaceLayout {
         switch self {
             case .tiles: "AeroSpace's tiles and accordions. New windows join the focused window's container."
             case .dwindle: "Hyprland's default. A new window splits the focused window along its longer side."
+            case .scrolling: "Columns on a strip wider than the screen. It scrolls to keep the focused one in view."
             case .floating: "Every window floats. Switching back tiles them again."
         }
     }
@@ -89,7 +91,35 @@ struct LayoutsPane: View {
             .fixedSize(horizontal: false, vertical: true) // Equal card heights
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
+            columnWidthRow
         }
+    }
+
+    /// `scrolling-column-width`: thirds and halves cover what people pick; a hand-written value shows as its own segment
+    private var columnWidthRow: some View {
+        let current = model.settings.effectiveScrollingColumnWidthPercent
+        let choices = [33, 50, 67].contains(current) ? [33, 50, 67] : ([33, 50, 67] + [current]).sorted()
+        return HStack(spacing: 8) {
+            Text("Scrolling column width")
+                .font(.system(size: 13))
+                .foregroundStyle(KBTheme.textPrimary)
+            Text("How wide a new column is, as a share of the screen.")
+                .font(.system(size: 11))
+                .foregroundStyle(KBTheme.textTertiary)
+                .lineLimit(1)
+            Spacer(minLength: 16)
+            Picker("Scrolling column width", selection: Binding(get: { current }, set: { model.setScrollingColumnWidth($0) })) {
+                ForEach(choices, id: \.self) { percent in
+                    Text(percent == 33 ? "⅓" : percent == 50 ? "½" : percent == 67 ? "⅔" : "\(percent)%").tag(percent)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .padding(.horizontal, 8)
     }
 
     // MARK: Overrides
@@ -372,6 +402,14 @@ private struct LayoutSchematic: View {
                             }
                         }
                     }
+                case .scrolling:
+                    HStack(spacing: gap) {
+                        cell.frame(width: size.width * 0.18)
+                        cell.frame(width: size.width * 0.42)
+                        cell.frame(width: size.width * 0.42)
+                    }
+                    .frame(width: size.width, height: size.height, alignment: .trailing)
+                    .clipped()
                 case .floating:
                     ZStack(alignment: .topLeading) {
                         cell

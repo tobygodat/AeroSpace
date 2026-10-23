@@ -143,6 +143,7 @@ private let configParser: [String: any ParserProtocol<Config>] = [
     "default-root-container-orientation": Parser(\.defaultRootContainerOrientation, parseDefaultContainerOrientation),
     "default-workspace-layout": Parser(\.defaultWorkspaceLayout, parseWorkspaceLayout),
     "workspace-layout": Parser(\.workspaceLayouts, parseWorkspaceLayouts),
+    "scrolling-column-width": Parser(\.scrollingColumnWidthPercent, parseScrollingColumnWidth),
 
     "start-at-login": Parser(\.startAtLogin, parseBool),
     "auto-reload-config": Parser(\.autoReloadConfig, parseBool),

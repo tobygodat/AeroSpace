@@ -59,6 +59,7 @@ struct MoveCommand: Command {
                 case .stop: return .succ
                 case .fail: return .fail
                 case .createImplicitContainer:
+                    if workspace.layout == .scrolling { return scrollingStripEdge(direction, io) }
                     createImplicitContainerAndMoveWindow(window, workspace, direction)
                     return .succ
             }
@@ -74,7 +75,7 @@ struct MoveCommand: Command {
 
                 return MoveNodeToMonitorCommand(args: moveNodeToMonitorArgs).run(env, io)
             } else {
-                return hitAllMonitorsOuterFrameBoundaries(window, workspace, args, direction)
+                return hitAllMonitorsOuterFrameBoundaries(window, workspace, io, args, direction)
             }
     }
 }
@@ -82,6 +83,7 @@ struct MoveCommand: Command {
 @MainActor private func hitAllMonitorsOuterFrameBoundaries(
     _ window: Window,
     _ workspace: Workspace,
+    _ io: CmdIo,
     _ args: MoveCmdArgs,
     _ direction: CardinalDirection,
 ) -> BinaryExitCode {
@@ -89,8 +91,17 @@ struct MoveCommand: Command {
         case .stop: return .succ
         case .fail: return .fail
         case .createImplicitContainer:
+            if workspace.layout == .scrolling { return scrollingStripEdge(direction, io) }
             createImplicitContainerAndMoveWindow(window, workspace, direction)
             return .succ
+    }
+}
+
+/// The scrolling strip is never wrapped in an implicit container: it has no rows, and its ends are its ends
+@MainActor private func scrollingStripEdge(_ direction: CardinalDirection, _ io: CmdIo) -> BinaryExitCode {
+    switch direction.orientation {
+        case .h: .succ // Already the first or the last column
+        case .v: .fail(io.err("The scrolling layout has no rows to move into. Use 'join-with' to stack windows into a column, or 'move left'/'move right' between columns"))
     }
 }
 

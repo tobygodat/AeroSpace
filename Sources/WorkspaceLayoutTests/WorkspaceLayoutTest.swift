@@ -326,6 +326,10 @@ struct WorkspaceLayoutTest {
         #expect(workspace.layout == .dwindle)
 
         await run("workspace-layout next")
+        #expect(workspace.layout == .scrolling)
+        #expect(workspace.tilingWindowIds == [1, 2, 3, 4])
+        #expect(workspace.rootTilingContainer.children.allSatisfy { $0 is Window }, "one column per window")
+        await run("workspace-layout next")
         #expect(workspace.layout == .floating)
         #expect(workspace.floatingWindowIds == [1, 2, 3, 4])
         await run("workspace-layout next")
