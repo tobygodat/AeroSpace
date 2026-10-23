@@ -16,7 +16,7 @@ final class SuperKeyPaneModel: ObservableObject {
         self.editor = editor
     }
 
-    var selected: SuperKey { pendingSuperKey ?? editor.superKey }
+    var selected: SuperKey { pendingSuperKey ?? editor.superKeySetting }
 
     func select(_ superKey: SuperKey) async {
         if superKey == selected { return }

@@ -36,7 +36,7 @@ MainActor.assumeIsolated {
     let model = KeybindingEditorModel(configUrlProvider: { .success(URL(filePath: configPath)) }, afterSave: { print("afterSave called") })
     model.load()
     switch argValue("--super-status") {
-        case "on": SuperKeyRuntime.shared.status = .on(model.superKey)
+        case "on": SuperKeyRuntime.shared.status = .on(model.superKeySetting)
         case "failed": SuperKeyRuntime.shared.status = .failed("AeroSpace lost Accessibility permission")
         default: break
     }

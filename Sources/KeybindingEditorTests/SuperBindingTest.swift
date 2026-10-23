@@ -264,7 +264,7 @@ final class SuperKeyEditorTest {
         let model = try makeModel()
         let pane = SuperKeyPaneModel(editor: model)
         await pane.select(.rightCmd)
-        #expect(model.superKey == .rightCmd)
+        #expect(model.superKeySetting == .rightCmd)
         #expect(fileText == "config-version = 2\nsuper-key = 'right-cmd'\n" + editorConfig.dropFirst("config-version = 2\n".count))
         await pane.select(.capsLock)
         #expect(fileText.contains("super-key = 'caps-lock'"))

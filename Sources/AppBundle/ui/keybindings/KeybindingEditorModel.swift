@@ -77,7 +77,7 @@ final class KeybindingEditorModel: ObservableObject {
                 loadedText = text
                 let parsed = parseConfig(text).config
                 keyMapping = parsed.keyMapping.resolve()
-                superKey = parsed.superKey
+                superKeySetting = parsed.superKey
                 modes = loaded.isEmpty ? [EditableMode(name: mainModeId, bindings: [])] : loaded
                 savedModes = modes
                 if !modes.contains(where: { $0.name == selectedMode }) {
@@ -180,14 +180,14 @@ final class KeybindingEditorModel: ObservableObject {
 
     private func canonicalShortcut(_ key: String) -> String? {
         guard case .success(let (modifiers, key)) = parseBinding(key, .emptyRoot, keyMapping) else { return nil }
-        let pressed = modifiers.resolvingSuper(superKey)
+        let pressed = modifiers.resolvingSuper(superKeySetting)
         return pressed.isEmpty ? key.toString() : pressed.toString() + "-" + key.toString()
     }
 
     // MARK: Recording
 
     /// `super-key` of the loaded config. Shortcuts are compared and recorded as the keys it stands for
-    private(set) var superKey: SuperKey = Config().superKey
+    private(set) var superKeySetting: SuperKey = Config().superKey
 
     func toggleRecording(_ id: UUID) {
         if recordingBindingId == id {
@@ -229,7 +229,7 @@ final class KeybindingEditorModel: ObservableObject {
     /// A key pressed in the window. Option or Command is recorded as Super while it's the Super key
     func record(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
         var modifiers = HotkeyModifiers(eventFlags: modifierFlags)
-        if let standsFor = superKey.standsFor, modifiers.contains(standsFor) {
+        if let standsFor = superKeySetting.standsFor, modifiers.contains(standsFor) {
             modifiers = modifiers.subtracting(standsFor).union(.superKey)
         }
         record(keyCode: keyCode, modifiers: modifiers)
@@ -317,7 +317,7 @@ final class KeybindingEditorModel: ObservableObject {
         savedModes = modes
         loadedText = newText
         keyMapping = parsed.config.keyMapping.resolve()
-        superKey = parsed.config.superKey
+        superKeySetting = parsed.config.superKey
         status = ("Saved to \(url.displayPath)", false)
         await afterSave()
     }
