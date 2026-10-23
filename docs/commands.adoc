@@ -89,6 +89,13 @@ include::aerospace-focus.adoc[tags=synopsis]
 include::aerospace-focus.adoc[tags=purpose]
 include::aerospace-focus.adoc[tags=body]
 
+== focus-app
+----
+include::aerospace-focus-app.adoc[tags=synopsis]
+----
+include::aerospace-focus-app.adoc[tags=purpose]
+include::aerospace-focus-app.adoc[tags=body]
+
 == focus-back-and-forth
 ----
 

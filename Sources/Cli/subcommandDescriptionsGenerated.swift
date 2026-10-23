@@ -12,6 +12,7 @@ let subcommandDescriptions = [
     ["  eval", "Send multiple commands to AeroSpace at once"],
     ["  false", "Return false value"],
     ["  flatten-workspace-tree", "Flatten the tree of the focused workspace"],
+    ["  focus-app", "Focus an app's window wherever it is, or open the app."],
     ["  focus-back-and-forth", "Switch between the current and previously focused elements back and forth"],
     ["  focus-monitor", "Focus monitor by relative direction, by order, or by pattern"],
     ["  focus", "Set focus to a window."],

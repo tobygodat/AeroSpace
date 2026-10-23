@@ -333,6 +333,24 @@ struct KeybindingEditorView: View {
     // MARK: Bottom bar
 
     private var bottomBar: some View {
+        EditorSaveBar(model: model, hint: "Click a shortcut to record new keys")
+    }
+
+    /// Invisible buttons that only exist for their keyboard shortcuts
+    private var shortcutButtons: some View {
+        Button("") { isSearchFocused = true }
+            .keyboardShortcut("f", modifiers: .command)
+            .opacity(0)
+            .allowsHitTesting(false)
+    }
+}
+
+/// Status, Reload, Revert and Save for everything edited in the window. Panes that edit the config show it too
+struct EditorSaveBar: View {
+    @ObservedObject var model: KeybindingEditorModel
+    let hint: String
+
+    var body: some View {
         HStack(spacing: 8) {
             if let status = model.status {
                 StatusDot(color: status.isError ? KBTheme.danger : KBTheme.success)
@@ -346,7 +364,7 @@ struct KeybindingEditorView: View {
                 Text("\(count) unsaved \(count == 1 ? "change" : "changes")")
                     .foregroundStyle(KBTheme.textSecondary)
             } else {
-                Text("Click a shortcut to record new keys")
+                Text(hint)
                     .foregroundStyle(KBTheme.textTertiary)
             }
             Spacer()
@@ -371,14 +389,6 @@ struct KeybindingEditorView: View {
         .font(.system(size: 12))
         .padding(.horizontal, 16)
         .frame(height: 46)
-    }
-
-    /// Invisible buttons that only exist for their keyboard shortcuts
-    private var shortcutButtons: some View {
-        Button("") { isSearchFocused = true }
-            .keyboardShortcut("f", modifiers: .command)
-            .opacity(0)
-            .allowsHitTesting(false)
     }
 }
 

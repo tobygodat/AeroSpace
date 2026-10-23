@@ -17,10 +17,15 @@ final class KeybindingEditorModel: ObservableObject {
     @Published private(set) var loadError: String? = nil
     @Published var status: (text: String, isError: Bool)? = nil
     @Published private(set) var savedModes: [EditableMode] = []
+    /// Home workspaces of apps (`[[on-window-detected]]` rules), edited in the Apps pane and saved together with the bindings
+    @Published var homeRules: [HomeWorkspaceRule] = []
+    @Published private(set) var savedHomeRules: [HomeWorkspaceRule] = []
+    /// Why home workspaces can't be edited in this config, if they can't
+    @Published private(set) var homeRulesError: String? = nil
     @Published private(set) var configFileUrl: URL? = nil
 
     private var loadedText: String = ""
-    private var keyMapping: [String: Key] = KeyMapping().resolve()
+    private(set) var keyMapping: [String: Key] = KeyMapping().resolve()
     private var keyMonitor: Any? = nil
     private var didBackUp: Bool = false
     private var isEditingConfig = false
@@ -33,9 +38,9 @@ final class KeybindingEditorModel: ObservableObject {
         self.afterSave = afterSave
     }
 
-    var isDirty: Bool { modes != savedModes }
+    var isDirty: Bool { modes != savedModes || homeRules != savedHomeRules }
 
-    /// Number of added, changed and deleted bindings since the last load or save
+    /// Number of added, changed and deleted bindings and home workspaces since the last load or save
     var unsavedChangeCount: Int {
         let saved = savedModes.flatMap(\.bindings)
         let current = modes.flatMap(\.bindings)
@@ -43,7 +48,10 @@ final class KeybindingEditorModel: ObservableObject {
         let currentIds = Set(current.map(\.id))
         let changedOrAdded = current.filter { savedById[$0.id] != $0 }.count
         let deleted = saved.filter { !currentIds.contains($0.id) }.count
-        return changedOrAdded + deleted
+        let changedRules = Set(homeRules.map(\.id)).union(savedHomeRules.map(\.id)).count { id in
+            homeRules.first { $0.id == id } != savedHomeRules.first { $0.id == id }
+        }
+        return changedOrAdded + deleted + changedRules
     }
 
     var selectedModeIndex: Int? { modes.firstIndex { $0.name == selectedMode } }
@@ -78,6 +86,10 @@ final class KeybindingEditorModel: ObservableObject {
                 keyMapping = parseConfig(text).config.keyMapping.resolve()
                 modes = loaded.isEmpty ? [EditableMode(name: mainModeId, bindings: [])] : loaded
                 savedModes = modes
+                let rules = readHomeWorkspaceRules(text)
+                homeRulesError = rules.failureOrNil
+                homeRules = rules.getIgnoringErrorsOrNil() ?? []
+                savedHomeRules = homeRules
                 if !modes.contains(where: { $0.name == selectedMode }) {
                     selectedMode = modes.first?.name ?? mainModeId
                 }
@@ -106,6 +118,7 @@ final class KeybindingEditorModel: ObservableObject {
     func revert() {
         stopRecording()
         modes = savedModes
+        homeRules = savedHomeRules
         status = nil
     }
 
@@ -176,7 +189,7 @@ final class KeybindingEditorModel: ObservableObject {
         modes.contains { mode in mode.bindings.contains { !errors(for: $0, in: mode).isEmpty } }
     }
 
-    private func canonicalShortcut(_ key: String) -> String? {
+    func canonicalShortcut(_ key: String) -> String? {
         guard case .success(let (modifiers, key)) = parseBinding(key, .emptyRoot, keyMapping) else { return nil }
         return modifiers.isEmpty ? key.toString() : modifiers.toString() + "-" + key.toString()
     }
@@ -221,8 +234,11 @@ final class KeybindingEditorModel: ObservableObject {
     func record(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
         guard let id = recordingBindingId else { return }
         let modifiers = modifierFlags.intersection([.option, .control, .command, .shift])
-        if keyCode == 53 && modifiers.isEmpty { // Plain esc cancels
+        if keyCode == 53 && modifiers.isEmpty { // Plain esc cancels, and takes back a binding that was just added
             stopRecording()
+            if modes.contains(where: { $0.bindings.contains { $0.id == id && $0.originalKey == nil && $0.key.isEmpty } }) {
+                deleteBinding(id)
+            }
             return
         }
         guard let key = Key(carbonKeyCode: UInt32(keyCode)), let notation = keyNotation(for: key) else {
@@ -263,7 +279,7 @@ final class KeybindingEditorModel: ObservableObject {
             return
         }
         let newText: String
-        switch rewriteBindings(currentText, modes) {
+        switch rewriteBindings(currentText, modes).flatMap({ homeRules == savedHomeRules ? .success($0) : rewriteHomeWorkspaceRules($0, homeRules) }) {
             case .failure(let msg):
                 status = (msg, true)
                 return
@@ -299,6 +315,12 @@ final class KeybindingEditorModel: ObservableObject {
             }
         }
         savedModes = modes
+        if case .success(let written) = readHomeWorkspaceRules(newText) {
+            homeRules = written.map { rule in
+                HomeWorkspaceRule(id: homeRules.first { $0.appId == rule.appId }?.id ?? rule.id, originalAppId: rule.appId, appId: rule.appId, workspace: rule.workspace)
+            }
+        }
+        savedHomeRules = homeRules
         loadedText = newText
         keyMapping = parsed.config.keyMapping.resolve()
         status = ("Saved to \(url.displayPath)", false)
