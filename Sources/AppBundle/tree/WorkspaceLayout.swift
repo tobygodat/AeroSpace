@@ -40,10 +40,36 @@ extension Workspace {
     ///   the user would have gotten by opening them one by one
     /// - floating: binds every tiling window to the floating container, keeping their frames, and records them
     /// Leaving floating first tiles the recorded windows (in recorded order) with the target policy.
-    /// Idempotent: applying the current layout again changes nothing.
     @MainActor
     func applyLayout(_ target: WorkspaceLayout) {
-        die("TODO(AERO-4 engine): applyLayout")
+        let tiling = rootTilingContainer.allLeafWindowsRecursive
+        if target == .floating {
+            for window in tiling {
+                window.lastFloatingSize = window.lastAppliedLayoutPhysicalRect?.size ?? window.lastFloatingSize
+                window.bindAsFloatingWindow(to: self)
+                if !windowsFloatedByLayout.contains(window.windowId) {
+                    windowsFloatedByLayout.append(window.windowId)
+                }
+            }
+            return
+        }
+        let returning = windowsFloatedByLayout.compactMap { id in floatingWindows.first { $0.windowId == id } }
+        windowsFloatedByLayout = []
+        let windows = tiling + returning
+        for window in windows {
+            window.unbindFromParent()
+        }
+        // Only empty containers are left in the root. Dwindle counts the root's children, so they go now rather
+        // than at the next normalization
+        for container in rootTilingContainer.children {
+            container.unbindFromParent()
+        }
+        for window in windows {
+            let data = target == .tiles
+                ? BindingData(parent: rootTilingContainer, adaptiveWeight: 1, index: INDEX_BIND_LAST)
+                : dwindleBindingData()
+            window.bind(to: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
+        }
     }
 
     /// Where a new tiling window goes on this workspace. `window` is already unbound, or nil for a window that is

@@ -147,6 +147,84 @@ struct WorkspaceLayoutTest {
         expectRect(workspace.tilingFrames[2].rect, rect(960, 540, 960, 540), "the next window splits 2 again")
     }
 
+    @Test func floatingLayoutFloatsTheTiledWindowsInPlaceAndTilesThemBack() async throws {
+        let workspace = Workspace.get(byName: "floating")
+        #expect(workspace.focusWorkspace())
+        let dialog = TestWindow.new(id: 0, parent: workspace.floatingWindowsContainer, frame: rect(100, 100, 400, 300))
+        let first = workspace.openWindow(id: 1)
+        let second = workspace.openWindow(id: 2)
+        try await workspace.layoutWorkspace()
+        let tiledFrames = [first.frame, second.frame]
+        let moves = [first.setAxFrameCallCount, second.setAxFrameCallCount]
+
+        workspace.layoutOverride = .floating
+        workspace.applyLayout(.floating)
+        try await workspace.layoutWorkspace()
+        #expect(workspace.floatingWindowIds == [0, 1, 2])
+        #expect(workspace.tilingWindowIds == [])
+        #expect(workspace.windowsFloatedByLayout == [1, 2], "the dialog floated on its own, so it isn't recorded")
+        expectRect(first.frame, tiledFrames[0]!, "1 keeps the frame it had as a tile")
+        expectRect(second.frame, tiledFrames[1]!, "2 keeps the frame it had as a tile")
+        #expect([first.setAxFrameCallCount, second.setAxFrameCallCount] == moves, "nothing moved the windows")
+        #expect(first.lastFloatingSize == tiledFrames[0]!.size)
+
+        let third = workspace.openWindow(id: 3)
+        #expect(third.isFloating)
+        #expect(workspace.windowsFloatedByLayout == [1, 2, 3])
+
+        workspace.layoutOverride = .tiles
+        workspace.applyLayout(.tiles)
+        try await workspace.layoutWorkspace()
+        #expect(workspace.tilingWindowIds == [1, 2, 3])
+        #expect(workspace.floatingWindowIds == [0], "the dialog still floats")
+        #expect(workspace.windowsFloatedByLayout == [])
+        expectRect(dialog.frame, rect(100, 100, 400, 300))
+        expectRect(first.frame, rect(0, 0, 640, 1080))
+        expectRect(third.frame, rect(1280, 0, 640, 1080))
+    }
+
+    @Test func switchingTilesToDwindleRebuildsTheSpiralAndBackFlattens() async throws {
+        let workspace = Workspace.get(byName: "switch")
+        let first = workspace.openWindow(id: 1)
+        workspace.openWindow(id: 2)
+        workspace.openWindow(id: 3)
+        workspace.openWindow(id: 4)
+        try await workspace.layoutWorkspace()
+        expectRect(workspace.tilingFrames[3].rect, rect(1440, 0, 480, 1080), "tiles: four columns")
+
+        workspace.layoutOverride = .dwindle
+        workspace.applyLayout(.dwindle)
+        try await workspace.layoutWorkspace()
+        #expect(diagram(frames: workspace.tilingFrames, screen: testScreen) == """
+        +-----------------------+-----------------------+
+        |                       |                       |
+        |                       |                       |
+        |                       |           2           |
+        |                       |                       |
+        |                       |                       |
+        |           1           +-----------+-----------+
+        |                       |           |           |
+        |                       |           |           |
+        |                       |     3     |     4     |
+        |                       |           |           |
+        |                       |           |           |
+        +-----------------------+-----------+-----------+
+        """)
+
+        #expect(first.focusWindow())
+        workspace.openWindow(id: 5)
+        #expect(workspace.tilingWindowIds == [1, 5, 2, 3, 4], "depth-first order of the spiral")
+
+        workspace.layoutOverride = .tiles
+        workspace.applyLayout(.tiles)
+        try await workspace.layoutWorkspace()
+        #expect(workspace.tilingWindowIds == [1, 5, 2, 3, 4], "flattened in depth-first order")
+        #expect(workspace.rootTilingContainer.children.allSatisfy { $0 is Window })
+        for (column, window) in workspace.rootTilingContainer.allLeafWindowsRecursive.enumerated() {
+            expectRect((window as! TestWindow).frame, rect(CGFloat(column) * 384, 0, 384, 1080), "window \(window.windowId) is column \(column)")
+        }
+    }
+
     @Test func estimatedVirtualRectMatchesLayoutRecursive() async throws {
         let workspace = Workspace.get(byName: "estimate")
         let root = workspace.rootTilingContainer
