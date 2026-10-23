@@ -87,4 +87,194 @@ extension WorkspaceLayoutTest {
         +-----------------------+-----------------------+
         """)
     }
+
+    @Test func scrollingColumnsAreAnInnerGapApart() async throws {
+        config.gaps.inner.horizontal = .constant(10)
+        let workspace = Workspace.get(byName: "scrolling")
+        #expect(workspace.focusWorkspace())
+        workspace.layoutOverride = .scrolling
+        let first = workspace.openWindow(id: 1)
+        let second = workspace.openWindow(id: 2)
+        let third = workspace.openWindow(id: 3)
+
+        #expect(first.focusWindow())
+        try await workspace.layoutWorkspace()
+        #expect(workspace.scrollOffset == 0)
+        expectRect(first.frame, rect(0, 0, 960, 1080))
+        expectRect(second.frame, rect(970, 0, 960, 1080), "a gap after 1")
+        expectRect(third.frame, rect(1919, 0, 960, 1080), "3 starts at 1940, past the screen, so it is parked")
+
+        // The strip is 2900 wide, so showing 3 scrolls by 980 and cuts the gap's worth off 2
+        #expect(third.focusWindow())
+        try await workspace.layoutWorkspace()
+        #expect(workspace.scrollOffset == 980)
+        expectRect(first.frame, rect(-959, 0, 960, 1080))
+        expectRect(second.frame, rect(-10, 0, 960, 1080), "2 overlaps the screen, so it is laid out where it is rather than parked")
+        expectRect(third.frame, rect(960, 0, 960, 1080))
+    }
+
+    @Test func scrollingGivesAnUnsizedColumnTheDefaultWidthAndCapsAColumnAtTheScreen() async throws {
+        let workspace = Workspace.get(byName: "scrolling")
+        workspace.layoutOverride = .scrolling
+        // What `move` does when it expels a window into an empty root: WEIGHT_AUTO with no siblings is weight 1
+        let first = TestWindow.new(id: 1, parent: workspace.rootTilingContainer, adaptiveWeight: WEIGHT_AUTO)
+        let second = TestWindow.new(id: 2, parent: workspace.rootTilingContainer, adaptiveWeight: 3000)
+        #expect(first.getWeight(.h) == 1)
+
+        try await workspace.layoutWorkspace()
+        #expect(workspace.rootTilingContainer.children.map { $0.getWeight(.h) } == [960, 1920], "the weights are the widths now")
+        #expect(workspace.scrollOffset == 960, "2 is focused and as wide as the screen")
+        expectRect(first.frame, rect(-959, 0, 960, 1080))
+        expectRect(second.frame, rect(0, 0, 1920, 1080))
+    }
+
+    @Test func joinWithStacksIntoAColumnAndMoveWalksTheStrip() async throws {
+        let workspace = Workspace.get(byName: "scrolling")
+        #expect(workspace.focusWorkspace())
+        workspace.layoutOverride = .scrolling
+        let first = workspace.openWindow(id: 1)
+        let second = workspace.openWindow(id: 2)
+        let third = workspace.openWindow(id: 3)
+
+        #expect(first.focusWindow())
+        await run("move right")
+        #expect(workspace.tilingWindowIds == [2, 1, 3], "two lone columns swap")
+        #expect(workspace.rootTilingContainer.children.map { $0.getWeight(.h) } == [960, 960, 960])
+
+        #expect(third.focusWindow())
+        await run("join-with left")
+        let column = try #require(workspace.rootTilingContainer.children[1] as? TilingContainer)
+        #expect(column.orientation == .v)
+        #expect(column.children == [first, third])
+        #expect(column.getWeight(.h) == 960, "the column keeps the width of the window it replaced")
+        try await workspace.layoutWorkspace()
+        #expect(workspace.scrollOffset == 0)
+        expectRect(second.frame, rect(0, 0, 960, 1080))
+        expectRect(first.frame, rect(960, 0, 960, 540))
+        expectRect(third.frame, rect(960, 540, 960, 540))
+        #expect(diagram(frames: workspace.tilingFrames, screen: testScreen) == """
+        +-----------------------+-----------------------+
+        |                       |                       |
+        |                       |                       |
+        |                       |           1           |
+        |                       |                       |
+        |                       |                       |
+        |           2           +-----------------------+
+        |                       |                       |
+        |                       |                       |
+        |                       |           3           |
+        |                       |                       |
+        |                       |                       |
+        +-----------------------+-----------------------+
+        """)
+
+        #expect(first.focusWindow())
+        let stderr = await run("move up", expectSuccess: false)
+        #expect(stderr.first?.contains("scrolling layout has no rows") == true, "\(stderr)")
+        #expect(column.children == [first, third], "nothing moved")
+
+        #expect(second.focusWindow())
+        await run("move right")
+        #expect(workspace.rootTilingContainer.children == [column], "2 joins the column next to it")
+        #expect(column.children == [first, second, third], "after the column's most recent window")
+
+        await run("move left")
+        #expect(workspace.tilingWindowIds == [2, 1, 3], "and leaves it as a column of its own")
+        #expect(workspace.rootTilingContainer.children.first === second)
+        try await workspace.layoutWorkspace()
+        expectRect(second.frame, rect(0, 0, 960, 1080), "a column expelled with WEIGHT_AUTO takes the width of its neighbours")
+        expectRect(first.frame, rect(960, 0, 960, 540))
+
+        // Closing a stacked window flattens the column to the window that is left, at the column's width
+        config.enableNormalizationFlattenContainers = true
+        third.closeAxWindow()
+        workspace.normalizeContainers()
+        #expect(workspace.rootTilingContainer.children == [second, first])
+        #expect(first.getWeight(.h) == 960)
+    }
+
+    @Test func switchingToAndFromScrollingRebuildsTheColumns() async throws {
+        let workspace = Workspace.get(byName: "switch")
+        #expect(workspace.focusWorkspace())
+        let first = workspace.openWindow(id: 1)
+        let second = workspace.openWindow(id: 2)
+        let third = workspace.openWindow(id: 3)
+        try await workspace.layoutWorkspace()
+        expectRect(third.frame, rect(1280, 0, 640, 1080), "tiles: three equal columns")
+
+        #expect(first.focusWindow())
+        await run("workspace-layout scrolling")
+        #expect(workspace.scrollOffset == 0)
+        #expect(workspace.tilingWindowIds == [1, 2, 3])
+        #expect(workspace.rootTilingContainer.children.map { $0.getWeight(.h) } == [960, 960, 960])
+        try await workspace.layoutWorkspace()
+        expectRect(first.frame, rect(0, 0, 960, 1080))
+        expectRect(second.frame, rect(960, 0, 960, 1080))
+        expectRect(third.frame, rect(1919, 0, 960, 1080), "parked")
+
+        #expect(third.focusWindow())
+        await run("join-with left")
+        #expect(workspace.rootTilingContainer.children.count == 2)
+        await run("workspace-layout dwindle")
+        #expect(workspace.tilingWindowIds == [1, 2, 3])
+        try await workspace.layoutWorkspace()
+        expectRect(first.frame, rect(0, 0, 960, 1080), "dwindle: the spiral")
+        expectRect(second.frame, rect(960, 0, 960, 540))
+        expectRect(third.frame, rect(960, 540, 960, 540))
+
+        await run("workspace-layout scrolling")
+        #expect(workspace.rootTilingContainer.children.allSatisfy { $0 is Window }, "the spiral's container is gone")
+        #expect(workspace.rootTilingContainer.children.map { $0.getWeight(.h) } == [960, 960, 960])
+
+        #expect(third.focusWindow())
+        await run("join-with left")
+        await run("workspace-layout tiles")
+        #expect(workspace.tilingWindowIds == [1, 2, 3])
+        #expect(workspace.rootTilingContainer.children.allSatisfy { $0 is Window }, "the column container is gone")
+        try await workspace.layoutWorkspace()
+        expectRect(first.frame, rect(0, 0, 640, 1080), "tiles again")
+        expectRect(third.frame, rect(1280, 0, 640, 1080))
+    }
+
+    @Test func theStripStaysHorizontalTilesWhateverLayoutDoesToTheRoot() async throws {
+        // A lone column is a direct child of the root, so `layout accordion` or `layout vertical` on it hits the root
+        let workspace = Workspace.get(byName: "scrolling")
+        #expect(workspace.focusWorkspace())
+        workspace.layoutOverride = .scrolling
+        let first = workspace.openWindow(id: 1)
+        let second = workspace.openWindow(id: 2)
+        #expect(second.focusWindow())
+        await run("layout accordion")
+        await run("layout vertical")
+        #expect(workspace.rootTilingContainer.layout == .accordion && workspace.rootTilingContainer.orientation == .v)
+
+        try await workspace.layoutWorkspace()
+        #expect(workspace.rootTilingContainer.layout == .tiles && workspace.rootTilingContainer.orientation == .h)
+        expectRect(first.frame, rect(0, 0, 960, 1080))
+        expectRect(second.frame, rect(960, 0, 960, 1080))
+    }
+
+    @Test func fullscreenWinsTheWholeScreenInAScrollingWorkspace() async throws {
+        let workspace = Workspace.get(byName: "scrolling")
+        #expect(workspace.focusWorkspace())
+        workspace.layoutOverride = .scrolling
+        let first = workspace.openWindow(id: 1)
+        let second = workspace.openWindow(id: 2)
+        let third = workspace.openWindow(id: 3)
+
+        #expect(second.focusWindow())
+        second.isFullscreen = true
+        third.isFullscreen = true
+        try await workspace.layoutWorkspace()
+        expectRect(second.frame, rect(0, 0, 1920, 1080))
+        #expect(second.lastAppliedLayoutPhysicalRect == nil, "as layoutRecursive records a fullscreen window")
+        expectRect(first.frame, rect(0, 0, 960, 1080), "the other columns stay where the strip puts them")
+        expectRect(third.frame, rect(1919, 0, 960, 1080))
+        #expect(!third.isFullscreen, "only the focused window can be fullscreen")
+
+        #expect(first.focusWindow())
+        try await workspace.layoutWorkspace()
+        #expect(!second.isFullscreen)
+        expectRect(second.frame, rect(960, 0, 960, 1080))
+    }
 }
