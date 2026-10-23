@@ -242,3 +242,29 @@ final class KeybindingEditorModelTest {
         #expect(model.modes[0].bindings[1].originalKey == nil)
     }
 }
+
+@MainActor
+final class KeybindingEditorSaveIdentityTest {
+    private let url: URL = FileManager.default.temporaryDirectory.appending(path: "keybinding-editor-\(UUID().uuidString).toml")
+
+    init() throws { try sample.write(to: url, atomically: true, encoding: .utf8) }
+
+    deinit {
+        try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(at: url.appendingPathExtension("bak-keybindings"))
+    }
+
+    @Test func idsStayUniqueAndMatchTheirDataAfterSave() async {
+        let model = KeybindingEditorModel(configUrlProvider: { [url] in .success(url) }, afterSave: {})
+        model.load()
+        let idBefore = model.modes[0].bindings[1].id
+        model.modes[0].bindings[0].key = "alt-shift-g"
+        model.modes[0].bindings[1].commands = ["fullscreen"]
+        await model.save()
+        let all = model.modes.flatMap(\.bindings)
+        #expect(Set(all.map(\.id)).count == all.count)
+        let altB = model.modes[0].bindings.first { $0.key == "alt-b" }
+        #expect(altB?.commands == ["fullscreen"])
+        #expect(altB?.id == idBefore)
+    }
+}

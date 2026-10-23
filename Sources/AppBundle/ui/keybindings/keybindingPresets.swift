@@ -11,8 +11,8 @@ struct KeybindingPreset: Identifiable {
 
 @MainActor func keybindingPresets() -> [KeybindingPreset] {
     [
-        KeybindingPreset(name: "Omarchy (⌥ Option as Super)", bindings: omarchyBindings(superKey: "alt")),
-        KeybindingPreset(name: "Omarchy (⌘ Command as Super)", bindings: omarchyBindings(superKey: "cmd")),
+        KeybindingPreset(name: "Omarchy · ⌥ as Super", bindings: omarchyBindings(superKey: "alt")),
+        KeybindingPreset(name: "Omarchy · ⌘ as Super", bindings: omarchyBindings(superKey: "cmd")),
     ]
 }
 
@@ -63,6 +63,9 @@ struct KeybindingPreset: Identifiable {
 }
 
 @MainActor func presetTerminalCommand() -> String {
+    if NSWorkspace.shared.urlForApplication(withBundleIdentifier: "so.stencil.tern") != nil {
+        return "exec-and-forget open -a Tern"
+    }
     let terminals: [(bundleId: String, name: String)] = [
         ("com.mitchellh.ghostty", "Ghostty"),
         ("net.kovidgoyal.kitty", "kitty"),

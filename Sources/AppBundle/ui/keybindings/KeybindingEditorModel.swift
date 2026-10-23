@@ -12,6 +12,7 @@ final class KeybindingEditorModel: ObservableObject {
     @Published var modes: [EditableMode] = []
     @Published var selectedMode: String = mainModeId
     @Published var searchText: String = ""
+    @Published var selectedBindingId: UUID? = nil
     @Published private(set) var recordingBindingId: UUID? = nil
     @Published private(set) var loadError: String? = nil
     @Published var status: (text: String, isError: Bool)? = nil
@@ -31,6 +32,17 @@ final class KeybindingEditorModel: ObservableObject {
     }
 
     var isDirty: Bool { modes != savedModes }
+
+    /// Number of added, changed and deleted bindings since the last load or save
+    var unsavedChangeCount: Int {
+        let saved = savedModes.flatMap(\.bindings)
+        let current = modes.flatMap(\.bindings)
+        let savedById = Dictionary(saved.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let currentIds = Set(current.map(\.id))
+        let changedOrAdded = current.filter { savedById[$0.id] != $0 }.count
+        let deleted = saved.filter { !currentIds.contains($0.id) }.count
+        return changedOrAdded + deleted
+    }
 
     var selectedModeIndex: Int? { modes.firstIndex { $0.name == selectedMode } }
 
@@ -77,11 +89,13 @@ final class KeybindingEditorModel: ObservableObject {
         let binding = EditableBinding(originalKey: nil, key: "", commands: [""])
         modes[modeIndex].bindings.append(binding)
         searchText = ""
+        selectedBindingId = binding.id
         startRecording(binding.id)
     }
 
     func deleteBinding(_ id: UUID) {
         if recordingBindingId == id { stopRecording() }
+        if selectedBindingId == id { selectedBindingId = nil }
         for index in modes.indices {
             modes[index].bindings.removeAll { $0.id == id }
         }
@@ -296,15 +310,17 @@ extension URL {
 }
 
 /// Human-readable shortcut, e.g. "alt-shift-1" → "⌥⇧1"
-func prettyShortcut(_ notation: String) -> String {
-    if notation.isEmpty { return "" }
+func prettyShortcut(_ notation: String) -> String { shortcutSymbols(notation).joined() }
+
+/// One symbol per key, modifiers first in macOS order, e.g. "alt-shift-1" → ["⌥", "⇧", "1"]
+func shortcutSymbols(_ notation: String) -> [String] {
+    if notation.isEmpty { return [] }
     let parts = notation.split(separator: "-").map(String.init)
-    guard let key = parts.last else { return notation }
+    guard let key = parts.last else { return [notation] }
     let modifiers = Set(parts.dropLast())
     let symbols = [("ctrl", "⌃"), ("alt", "⌥"), ("shift", "⇧"), ("cmd", "⌘")]
         .filter { modifiers.contains($0.0) }
         .map(\.1)
-        .joined()
     let keySymbols: [String: String] = [
         "enter": "↩", "tab": "⇥", "space": "Space", "esc": "⎋", "backspace": "⌫", "forwardDelete": "⌦",
         "left": "←", "right": "→", "up": "↑", "down": "↓",
@@ -312,8 +328,7 @@ func prettyShortcut(_ notation: String) -> String {
         "semicolon": ";", "quote": "'", "backtick": "`", "leftSquareBracket": "[", "rightSquareBracket": "]",
         "pageUp": "⇞", "pageDown": "⇟", "home": "↖", "end": "↘",
     ]
-    let keyText = keySymbols[key] ?? (key.count == 1 ? key.uppercased() : key)
-    return symbols + keyText
+    return symbols + [keySymbols[key] ?? (key.count == 1 ? key.uppercased() : key)]
 }
 
 @MainActor private func keybindingEditorConfigUrl() -> Result<URL, String> {

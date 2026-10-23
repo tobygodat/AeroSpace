@@ -4,6 +4,11 @@
 //
 // --snapshot  renders the window to a PNG and exits
 // --demo      before the snapshot: records ⌥⇧G into the first binding, changes one command, and saves
+// --appearance light|dark
+// --select N  expands the Nth binding of the main mode
+// --edit N=command  with --demo: which binding's command to change (default 1=fullscreen)
+// --dump      prints the first bindings of the main mode
+// --redraw    forces a full layout and redraw before the snapshot
 @testable import AppBundle
 import AppKit
 import SwiftUI
@@ -19,6 +24,8 @@ guard let configPath = argValue("--config") else {
 }
 let snapshotPath = argValue("--snapshot")
 let demo = args.contains("--demo")
+let appearance = argValue("--appearance")
+let selectIndex = argValue("--select").flatMap(Int.init)
 
 MainActor.assumeIsolated {
     let app = NSApplication.shared
@@ -29,12 +36,19 @@ MainActor.assumeIsolated {
 
     // A utility panel so tiling window managers leave it floating
     let window = NSPanel(
-        contentRect: NSRect(x: 0, y: 0, width: 820, height: 640),
-        styleMask: [.titled, .closable, .resizable, .utilityWindow],
+        contentRect: NSRect(x: 0, y: 0, width: 920, height: 640),
+        styleMask: [.titled, .closable, .resizable, .utilityWindow, .fullSizeContentView],
         backing: .buffered,
         defer: false,
     )
     window.title = "Keybindings"
+    window.titlebarAppearsTransparent = true
+    window.titleVisibility = .hidden
+    switch appearance {
+        case "light": window.appearance = NSAppearance(named: .aqua)
+        case "dark": window.appearance = NSAppearance(named: .darkAqua)
+        default: break
+    }
     window.contentView = NSHostingView(rootView: KeybindingEditorView(model: model))
     window.center()
     window.makeKeyAndOrderFront(nil)
@@ -53,14 +67,31 @@ MainActor.assumeIsolated {
                 if let event { app.postEvent(event, atStart: false) } // Goes through the real local event monitor
                 try await Task.sleep(for: .milliseconds(300))
                 print("recorded: \(model.modes[0].bindings[0].key)")
-                if model.modes[0].bindings.count > 1 {
-                    model.modes[0].bindings[1].commands = ["fullscreen"]
+                let edit = argValue("--edit").map { $0.split(separator: "=", maxSplits: 1).map(String.init) } ?? ["1", "fullscreen"]
+                if let index = Int(edit[0]), model.modes[0].bindings.indices.contains(index) {
+                    model.modes[0].bindings[index].commands = [edit[1]]
                 }
                 await model.save()
                 print("status: \(model.status?.text ?? "-")")
                 // Show what a mistake looks like in the snapshot
                 model.modes[0].bindings.append(EditableBinding(originalKey: nil, key: "alt-shift-g", commands: ["not-a-command"]))
                 try await Task.sleep(for: .milliseconds(300))
+            }
+            if let selectIndex, let binding = model.modes.first?.bindings.dropFirst(selectIndex).first {
+                model.selectedBindingId = binding.id
+                try await Task.sleep(for: .milliseconds(300))
+            }
+            if args.contains("--dump") {
+                for binding in model.modes.first?.bindings.prefix(4) ?? [] {
+                    print("dump: \(binding.key) -> \(binding.commands) [\(describeCommands(binding.normalizedCommands).category)]")
+                }
+            }
+            if args.contains("--redraw"), let root = window.contentView {
+                root.needsLayout = true
+                root.layoutSubtreeIfNeeded()
+                root.setNeedsDisplay(root.bounds)
+                root.displayIfNeeded()
+                try await Task.sleep(for: .milliseconds(500))
             }
             if let snapshotPath, let view = window.contentView?.superview, let layer = view.layer {
                 // Render the layer tree: cacheDisplay(in:to:) skips most SwiftUI controls

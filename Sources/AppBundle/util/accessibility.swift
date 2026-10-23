@@ -22,7 +22,9 @@ func waitForAccessibilityPermission_nonCancellable() async {
 }
 
 private func resetAccessibility() {
-    _ = try? Process.run(URL(filePath: "/usr/bin/tccutil"), arguments: ["reset", "Accessibility", aeroSpaceAppId])
+    // Reset this bundle's own entry: a fork with its own bundle id must not wipe the permission of the stock app
+    let bundleId = Bundle.main.bundleIdentifier ?? aeroSpaceAppId
+    _ = try? Process.run(URL(filePath: "/usr/bin/tccutil"), arguments: ["reset", "Accessibility", bundleId])
 }
 
 protocol ReadableAttr: Sendable {

@@ -64,10 +64,15 @@ Original design notes:
 - "Keybindings" cheat-sheet overlay (Omarchy's Super+K).
 - Super+Space menu (Omarchy menu) for theme, gaps toggle, reload, and service-mode actions.
 
-## Shipping it to yourself
+## Shipping it to yourself. Done
 
-1. Assemble `AeroSpace.app` from the SwiftPM binary (Info.plist + ad-hoc `codesign -s -`), or
-   install Xcode and use the upstream `xcode/` project.
-2. Change the bundle id (e.g. `dev.toby.aerospace-omarchy`) so it doesn't collide with the Homebrew install.
-3. Quit the stock AeroSpace before running the fork. Both register the same hotkeys and server socket.
-4. Grant Accessibility permission to the new app.
+`./package-app.sh --install` builds `AeroSpace Omarchy.app` (bundle id `dev.tobygodat.aerospace-omarchy`) from the
+SwiftPM release build and installs it to `~/Applications`. No Xcode needed. It keeps AeroSpace's socket name, so the
+Homebrew `aerospace` CLI talks to it.
+
+- Quit the stock AeroSpace first, and turn off its login item. Both apps register the same hotkeys and socket.
+- The app is signed ad-hoc, so macOS drops its Accessibility permission on every rebuild: toggle it off and on
+  again in System Settings → Privacy & Security → Accessibility. Set `CODESIGN_IDENTITY` to a self-signed code
+  signing certificate to avoid this.
+- The menu shows version `0.0.0-SNAPSHOT` (the generated version files aren't stamped without `generate.sh`), so the
+  CLI warns about a version mismatch when a command fails.
