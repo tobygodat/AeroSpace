@@ -350,6 +350,27 @@ While in a `v_accordion`, you can navigate the windows using the `focus (up|down
 
 Accordion padding is configurable via `accordion-padding` option.
 
+[#workspace-layouts]
+=== Workspace layouts
+
+On top of the container layouts above, every workspace has a layout of its own that decides where new windows go:
+
+- `tiles` - the default. New windows join the focused window's container
+- `dwindle` - Hyprland's default. A new window splits the focused window's area along its longer side, so windows spiral
+- `floating` - every window floats. Switching away tiles the windows this layout floated
+
+[source,toml]
+----
+default-workspace-layout = 'dwindle' # tiles | dwindle | floating
+
+[workspace-layout]
+    1 = 'tiles'
+    S = 'floating'
+----
+
+Change it at runtime with the xref:commands.adoc#workspace-layout[workspace-layout] command (`workspace-layout next` cycles).
+`reload-config` applies the config again. The Layouts pane of the Keybindings window edits both keys.
+
 [#normalization]
 === Normalization
 
