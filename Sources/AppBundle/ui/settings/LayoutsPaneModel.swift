@@ -124,11 +124,9 @@ final class LayoutsPaneModel: ObservableObject {
         status = nil
     }
 
-    /// Picking the layout that already applies keeps an absent key absent
+    /// Picking the saved layout keeps an absent key absent, so switching away and back again is no change
     func setDefault(_ layout: WorkspaceLayout) {
-        if layout != settings.effectiveDefault {
-            settings.defaultLayout = layout
-        }
+        settings.defaultLayout = layout == savedSettings.effectiveDefault ? savedSettings.defaultLayout : layout
     }
 
     /// nil removes the override ("Same as default")
@@ -175,36 +173,38 @@ final class LayoutsPaneModel: ObservableObject {
 
     // MARK: Saving
 
+    /// One write and one reload for the layout keys and the shortcut together: both rewrites are text to text, so
+    /// they run on the same text and nothing is saved unless the whole result validates
     func save() async {
         editor.stopRecording()
         guard let url = editor.configFileUrl else { return }
-        if editor.isDirty {
-            await editor.save()
-            if let editorStatus = editor.status, editorStatus.isError {
-                status = editorStatus
-                return
-            }
-        }
-        if !layoutsChanged {
-            status = ("Saved to \(url.displayPath)", false)
-            return
-        }
         let resolvedUrl = url.resolvingSymlinksInPath() // Keep dotfile symlinks intact
         guard let text = try? String(contentsOf: resolvedUrl, encoding: .utf8) else {
             status = ("Can't read \(url.path)", true)
             return
         }
-        if readWorkspaceLayoutSettings(text).getIgnoringErrorsOrNil() != savedSettings {
-            status = ("The layouts in the config file changed on disk since they were loaded. Press Reload (your edits will be lost) or Revert.", true)
+        if text != editor.loadedText || readWorkspaceLayoutSettings(text).getIgnoringErrorsOrNil() != savedSettings {
+            status = ("The config file changed on disk since it was loaded. Press Reload (your edits will be lost) or Revert.", true)
             return
         }
-        let newText: String
-        switch rewriteWorkspaceLayouts(text, settings) {
-            case .failure(let msg):
-                status = (msg, true)
-                return
-            case .success(let it):
-                newText = it
+        var newText = text
+        if editor.isDirty {
+            switch rewriteBindings(newText, editor.modes) {
+                case .failure(let msg):
+                    status = (msg, true)
+                    return
+                case .success(let it):
+                    newText = it
+            }
+        }
+        if layoutsChanged {
+            switch rewriteWorkspaceLayouts(newText, settings) {
+                case .failure(let msg):
+                    status = (msg, true)
+                    return
+                case .success(let it):
+                    newText = it
+            }
         }
         let errors = parseConfig(newText).errors
         if !errors.isEmpty {
@@ -212,13 +212,14 @@ final class LayoutsPaneModel: ObservableObject {
             return
         }
         do {
+            try editor.backUpConfigOnce(resolvedUrl)
             try newText.write(to: resolvedUrl, atomically: true, encoding: .utf8)
         } catch {
             status = ("Couldn't save: \(error.localizedDescription)", true)
             return
         }
         savedSettings = settings
-        editor.load() // Otherwise the editor's next save sees a file that changed under it and refuses
+        editor.load() // Picks up the saved bindings as the editor's new baseline
         status = ("Saved to \(url.displayPath)", false)
         await editor.afterSave()
     }
