@@ -48,6 +48,7 @@ extension HotKey {
     }
     let oldMode = activeMode
     activeMode = targetMode
+    if (oldMode == nil) != (targetMode == nil) { SuperKeyRuntime.shared.sync(config) } // AeroSpace was enabled or disabled
     if oldMode != targetMode {
         broadcastEvent(.modeChanged(mode: targetMode))
         _ = await config.onModeChanged.run(.defaultEnv, .emptyStdin)
@@ -117,25 +118,24 @@ func parseBindings(_ raw: OrderedJson, _ backtrace: ConfigBacktrace, _ c: inout 
         return [:]
     }
     var result: [String: HotkeyBinding] = [:]
-    /// Keys as pressed, Super resolved: 'super-b' and 'alt-b' are the same keys while super-key = 'alt'
-    var pressed: [String: String] = [:]
+    var writtenWithSuper: Set<String> = []
     for (binding, rawCommand): (String, OrderedJson) in rawTable {
         let backtrace = backtrace + .key(binding)
-        let binding = parseBinding(binding, backtrace, mapping)
-            .map { modifiers, key -> HotkeyBinding in
+        let parsed = parseBinding(binding, backtrace, mapping)
+            .map { modifiers, key -> (binding: HotkeyBinding, usesSuper: Bool) in
                 let commands = parseShellOfCommandsForConfig(rawCommand, backtrace, &c)
-                return HotkeyBinding(modifiers, key, commands, descriptionWithKeyNotation: binding)
+                // While Super is Option or Command, 'super-b' is that binding: one hotkey, also across modes
+                return (HotkeyBinding(modifiers.resolvingSuper(superKey), key, commands, descriptionWithKeyNotation: binding), modifiers.contains(.superKey))
             }
             .getOrNil(appendErrorTo: &c.errors)
-        if let binding {
-            let keys = binding.modifiers.resolvingSuper(superKey).toString() + "-" + binding.keyCode.toString()
-            if result.keys.contains(binding.descriptionWithKeyCode) {
-                c.errors.append(.init(backtrace, "'\(binding.descriptionWithKeyCode)' Binding redeclaration"))
-            } else if let other = pressed[keys] {
-                c.errors.append(.init(backtrace, "'\(binding.descriptionWithKeyNotation)' and '\(other)' are the same keys while super-key = '\(superKey.rawValue)'"))
+        if let (binding, usesSuper) = parsed {
+            if let other = result[binding.descriptionWithKeyCode] {
+                c.errors.append(.init(backtrace, usesSuper != writtenWithSuper.contains(binding.descriptionWithKeyCode)
+                    ? "'\(binding.descriptionWithKeyNotation)' and '\(other.descriptionWithKeyNotation)' are the same keys while super-key = '\(superKey.rawValue)'"
+                    : "'\(binding.descriptionWithKeyCode)' Binding redeclaration"))
             }
             result[binding.descriptionWithKeyCode] = binding
-            pressed[keys] = binding.descriptionWithKeyNotation
+            if usesSuper { writtenWithSuper.insert(binding.descriptionWithKeyCode) } else { writtenWithSuper.remove(binding.descriptionWithKeyCode) }
         }
     }
     return result

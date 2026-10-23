@@ -202,6 +202,7 @@ final class KeybindingEditorModel: ObservableObject {
         recordingBindingId = id
         setHotKeysPaused(true) // Otherwise AeroSpace itself would swallow shortcuts that are already bound
         superChordRecorder = { [weak self] chord in self?.record(keyCode: chord.keyCode, modifiers: chord.modifiers.union(.superKey)) }
+        SuperKeyRuntime.shared.setRecording(true) // So Super can be recorded before any binding uses it
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags
@@ -223,6 +224,7 @@ final class KeybindingEditorModel: ObservableObject {
             recordingBindingId = nil
             setHotKeysPaused(false)
             superChordRecorder = nil
+            SuperKeyRuntime.shared.setRecording(false)
         }
     }
 
