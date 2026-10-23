@@ -178,6 +178,9 @@ let volume_help_generated = """
 let workspace_back_and_forth_help_generated = """
     USAGE: workspace-back-and-forth [-h|--help]
     """
+let workspace_layout_help_generated = """
+    USAGE: workspace-layout [-h|--help] [--workspace <workspace>] (<target-layout>)...
+    """
 let workspace_help_generated = """
     USAGE: workspace [-h|--help] [--auto-back-and-forth] [--fail-if-noop] [--] <workspace-name>
        OR: workspace [-h|--help] [--wrap-around] [--stdin|--no-stdin] (next|prev)

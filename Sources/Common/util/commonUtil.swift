@@ -148,7 +148,8 @@ public func check(
     }
 }
 
-public var isUnitTest: Bool { NSClassFromString("XCTestCase") != nil }
+/// XCTest suites are detected. A swift-testing suite sets it to true itself
+public nonisolated(unsafe) var isUnitTest: Bool = NSClassFromString("XCTestCase") != nil
 
 extension CaseIterable where Self: RawRepresentable, RawValue == String {
     public static var cliArgsCases: [String] { allCases.map(\.rawValue) }

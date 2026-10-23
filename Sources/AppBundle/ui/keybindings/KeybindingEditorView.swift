@@ -73,6 +73,8 @@ struct KeybindingEditorView: View {
     @FocusState private var isSearchFocused: Bool
     /// Keeps the selected row in its group while its command is being edited, so it doesn't jump around
     @State private var stickyCategory: (id: UUID, category: KeybindingCategory)? = nil
+    /// nil shows the bindings of `model.selectedMode`
+    @State var pane: SettingsPane? = nil
 
     var body: some View {
         HStack(spacing: 0) {
@@ -91,6 +93,8 @@ struct KeybindingEditorView: View {
                 bottomBar
             }
             .background(KBTheme.background)
+            .disabled(pane != nil) // Keeps ⌘N and ⌘S of the hidden bindings list from firing
+            .overlay { if let pane { pane.view(editor: model).background(KBTheme.background) } }
         }
         .ignoresSafeArea(.container, edges: .top) // Run under the hidden title bar
         .frame(minWidth: 780, minHeight: 480)
@@ -122,11 +126,17 @@ struct KeybindingEditorView: View {
                     icon: mode.name == mainModeId ? "keyboard" : "square.stack.3d.up",
                     title: mode.name,
                     trailing: "\(mode.bindings.count)",
-                    isSelected: model.selectedMode == mode.name,
+                    isSelected: pane == nil && model.selectedMode == mode.name,
                 ) {
+                    pane = nil
                     model.selectedMode = mode.name
                     model.selectedBindingId = nil
                 }
+            }
+
+            SidebarLabel("Settings").padding(.top, 18)
+            ForEach(SettingsPane.allCases) { item in
+                SidebarItem(icon: item.icon, title: item.title, trailing: nil, isSelected: pane == item) { pane = item }
             }
 
             SidebarLabel("Presets").padding(.top, 18)

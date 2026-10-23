@@ -24,7 +24,7 @@ final class KeybindingEditorModel: ObservableObject {
     private var keyMonitor: Any? = nil
     private var didBackUp: Bool = false
     private let configUrlProvider: @MainActor () -> Result<URL, String>
-    private let afterSave: @MainActor () async -> Void
+    let afterSave: @MainActor () async -> Void
 
     init(configUrlProvider: @escaping @MainActor () -> Result<URL, String>, afterSave: @escaping @MainActor () async -> Void) {
         self.configUrlProvider = configUrlProvider
