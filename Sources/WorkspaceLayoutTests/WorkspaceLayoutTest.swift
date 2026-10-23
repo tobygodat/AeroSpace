@@ -225,6 +225,117 @@ struct WorkspaceLayoutTest {
         }
     }
 
+    @Test func workspaceLayoutCommandSwitchesAndCyclesLayouts() async throws {
+        let workspace = Workspace.get(byName: "cmd")
+        #expect(workspace.focusWorkspace())
+        for id: UInt32 in 1 ... 4 { workspace.openWindow(id: id) }
+        try await workspace.layoutWorkspace()
+
+        await run("workspace-layout dwindle")
+        #expect(workspace.layoutOverride == .dwindle)
+        try await workspace.layoutWorkspace()
+        expectRect(workspace.tilingFrames[3].rect, rect(1440, 540, 480, 540), "rebuilt as a spiral")
+
+        await run("workspace-layout tiles dwindle")
+        #expect(workspace.layout == .tiles, "the first target the workspace isn't in wins")
+        #expect(workspace.rootTilingContainer.children.allSatisfy { $0 is Window })
+        await run("workspace-layout tiles dwindle")
+        #expect(workspace.layout == .dwindle)
+
+        await run("workspace-layout next")
+        #expect(workspace.layout == .floating)
+        #expect(workspace.floatingWindowIds == [1, 2, 3, 4])
+        await run("workspace-layout next")
+        #expect(workspace.layout == .tiles)
+        #expect(workspace.tilingWindowIds == [1, 2, 3, 4])
+        #expect(workspace.floatingWindowIds == [])
+        await run("workspace-layout next")
+        #expect(workspace.layout == .dwindle)
+
+        let other = Workspace.get(byName: "other")
+        other.openWindow(id: 9)
+        await run("workspace-layout --workspace other floating")
+        #expect(other.layout == .floating)
+        #expect(other.floatingWindowIds == [9])
+        #expect(workspace.layout == .dwindle, "the focused workspace is left alone")
+        #expect(focus.workspace == workspace)
+    }
+
+    @Test func configDeclaresTheDefaultAndPerWorkspaceLayouts() {
+        let parsed = parseConfig("""
+        default-workspace-layout = 'dwindle'
+        [workspace-layout]
+        2 = 'floating'
+        """)
+        #expect(parsed.errors.isEmpty, "\(parsed.errors.map { $0.description(.error) })")
+        #expect(parsed.config.defaultWorkspaceLayout == .dwindle)
+        #expect(parsed.config.workspaceLayouts == ["2": .floating])
+
+        let unknown = parseConfig("default-workspace-layout = 'spiral'")
+        #expect(unknown.errors.count == 1)
+        #expect(unknown.errors.first?.description(.error).contains(WorkspaceLayout.unionLiteral) == true, "\(unknown.errors.map { $0.description(.error) })")
+        #expect(parseConfig("[workspace-layout]\n2 = 'spiral'").errors.count == 1)
+
+        config = parsed.config
+        let second = Workspace.get(byName: "2")
+        #expect(Workspace.get(byName: "1").layout == .dwindle, "default")
+        #expect(second.layout == .floating, "the table beats the default")
+        second.layoutOverride = .tiles
+        #expect(second.layout == .tiles, "the command beats the table")
+    }
+
+    @Test func reloadingTheConfigDropsOverridesAndRebuildsChangedWorkspaces() async throws {
+        let changed = Workspace.get(byName: "changed")
+        for id: UInt32 in 1 ... 4 { changed.openWindow(id: id) }
+        changed.layoutOverride = .floating
+        changed.applyLayout(.floating)
+        let same = Workspace.get(byName: "same")
+        same.layoutOverride = .dwindle
+        for id: UInt32 in 1 ... 3 { same.openWindow(id: id + 10) }
+        let column = same.rootTilingContainer.children[1]
+
+        // ReloadConfigCommand's sequence: remember the effective layouts, swap the config, sync
+        let before = Workspace.all.map { (workspace: $0, layout: $0.layout) }
+        config.defaultWorkspaceLayout = .dwindle
+        syncWorkspaceLayoutsAfterConfigReload(layoutsBeforeReload: before)
+
+        #expect(changed.layoutOverride == nil)
+        #expect(changed.layout == .dwindle)
+        #expect(changed.tilingWindowIds == [1, 2, 3, 4])
+        #expect(changed.windowsFloatedByLayout == [])
+        try await changed.layoutWorkspace()
+        expectRect(changed.tilingFrames[3].rect, rect(1440, 540, 480, 540), "tiled back as a spiral")
+
+        #expect(same.layoutOverride == nil)
+        #expect(same.layout == .dwindle)
+        #expect(same.rootTilingContainer.children[1] === column, "an unchanged layout leaves the tree alone")
+    }
+
+    @Test func movingAWindowIntoANonTilesWorkspaceUsesThatWorkspacesPolicy() async throws {
+        let source = Workspace.get(byName: "source")
+        let moved = source.openWindow(id: 9)
+        let dwindle = Workspace.get(byName: "dwindle")
+        dwindle.layoutOverride = .dwindle
+        dwindle.openWindow(id: 1)
+        dwindle.openWindow(id: 2)
+        try await dwindle.layoutWorkspace()
+
+        #expect(moveWindowToWorkspace(moved, dwindle, CmdIoImpl.emptyStdinIgnoringOut, focusFollowsWindow: false, failIfNoop: false) == .succ)
+        try await dwindle.layoutWorkspace()
+        #expect(source.isEffectivelyEmpty)
+        #expect(dwindle.tilingWindowIds == [1, 2, 9])
+        expectRect(dwindle.tilingFrames[1].rect, rect(960, 0, 960, 540), "2 was the most recent window, so it got split")
+        expectRect(dwindle.tilingFrames[2].rect, rect(960, 540, 960, 540))
+
+        let floating = Workspace.get(byName: "floating")
+        floating.layoutOverride = .floating
+        #expect(moveWindowToWorkspace(moved, floating, CmdIoImpl.emptyStdinIgnoringOut, focusFollowsWindow: false, failIfNoop: false) == .succ)
+        #expect(moved.isFloating)
+        #expect(floating.floatingWindowIds == [9])
+        #expect(floating.windowsFloatedByLayout == [9])
+        #expect(dwindle.tilingWindowIds == [1, 2])
+    }
+
     @Test func estimatedVirtualRectMatchesLayoutRecursive() async throws {
         let workspace = Workspace.get(byName: "estimate")
         let root = workspace.rootTilingContainer

@@ -32,6 +32,17 @@ func setUpWorkspacesForTests() {
     TestApp.shared.windows = []
 }
 
+/// Runs a command line the way a keybinding would, refresh included
+@MainActor
+func run(_ command: String, sourceLocation: SourceLocation = #_sourceLocation) async {
+    guard let parsed = parseCommand(command, allowExecAndForget: false, allowEval: false).cmdOrNil else {
+        Issue.record("'\(command)' doesn't parse", sourceLocation: sourceLocation)
+        return
+    }
+    let result = await parsed.run(.defaultEnv, .emptyStdin)
+    #expect(result.exitCode.rawValue == 0, "'\(command)' failed: \(result.stderr)", sourceLocation: sourceLocation)
+}
+
 extension Workspace {
     /// What MacWindow.getOrRegister does for a window that just appeared on this workspace: the policy picks
     /// the parent, then the window is created there. `bind` makes it the most recent window
