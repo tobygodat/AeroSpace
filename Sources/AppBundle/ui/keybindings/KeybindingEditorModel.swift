@@ -17,23 +17,26 @@ final class KeybindingEditorModel: ObservableObject {
     @Published private(set) var loadError: String? = nil
     @Published var status: (text: String, isError: Bool)? = nil
     @Published private(set) var savedModes: [EditableMode] = []
+    /// Home workspaces of apps (`[[on-window-detected]]` rules), edited in the Apps pane and saved together with the bindings
+    @Published var homeRules: [HomeWorkspaceRule] = []
+    @Published private(set) var savedHomeRules: [HomeWorkspaceRule] = []
     @Published private(set) var configFileUrl: URL? = nil
 
     private var loadedText: String = ""
-    private var keyMapping: [String: Key] = KeyMapping().resolve()
+    private(set) var keyMapping: [String: Key] = KeyMapping().resolve()
     private var keyMonitor: Any? = nil
     private var didBackUp: Bool = false
     private let configUrlProvider: @MainActor () -> Result<URL, String>
-    private let afterSave: @MainActor () async -> Void
+    let afterSave: @MainActor () async -> Void
 
     init(configUrlProvider: @escaping @MainActor () -> Result<URL, String>, afterSave: @escaping @MainActor () async -> Void) {
         self.configUrlProvider = configUrlProvider
         self.afterSave = afterSave
     }
 
-    var isDirty: Bool { modes != savedModes }
+    var isDirty: Bool { modes != savedModes || homeRules != savedHomeRules }
 
-    /// Number of added, changed and deleted bindings since the last load or save
+    /// Number of added, changed and deleted bindings and home workspaces since the last load or save
     var unsavedChangeCount: Int {
         let saved = savedModes.flatMap(\.bindings)
         let current = modes.flatMap(\.bindings)
@@ -41,7 +44,10 @@ final class KeybindingEditorModel: ObservableObject {
         let currentIds = Set(current.map(\.id))
         let changedOrAdded = current.filter { savedById[$0.id] != $0 }.count
         let deleted = saved.filter { !currentIds.contains($0.id) }.count
-        return changedOrAdded + deleted
+        let changedRules = Set(homeRules.map(\.id)).union(savedHomeRules.map(\.id)).count { id in
+            homeRules.first { $0.id == id } != savedHomeRules.first { $0.id == id }
+        }
+        return changedOrAdded + deleted + changedRules
     }
 
     var selectedModeIndex: Int? { modes.firstIndex { $0.name == selectedMode } }
@@ -67,15 +73,17 @@ final class KeybindingEditorModel: ObservableObject {
             loadError = "Can't read \(configFileUrl?.path ?? "the config file")"
             return
         }
-        switch readEditableModes(text) {
+        switch readEditableModes(text).flatMap({ modes in readHomeWorkspaceRules(text).map { (modes, $0) } }) {
             case .failure(let msg):
                 loadError = msg
-            case .success(let loaded):
+            case .success(let (loaded, rules)):
                 loadError = nil
                 loadedText = text
                 keyMapping = parseConfig(text).config.keyMapping.resolve()
                 modes = loaded.isEmpty ? [EditableMode(name: mainModeId, bindings: [])] : loaded
                 savedModes = modes
+                homeRules = rules
+                savedHomeRules = rules
                 if !modes.contains(where: { $0.name == selectedMode }) {
                     selectedMode = modes.first?.name ?? mainModeId
                 }
@@ -104,6 +112,7 @@ final class KeybindingEditorModel: ObservableObject {
     func revert() {
         stopRecording()
         modes = savedModes
+        homeRules = savedHomeRules
         status = nil
     }
 
@@ -261,7 +270,7 @@ final class KeybindingEditorModel: ObservableObject {
             return
         }
         let newText: String
-        switch rewriteBindings(currentText, modes) {
+        switch rewriteBindings(currentText, modes).flatMap({ rewriteHomeWorkspaceRules($0, homeRules) }) {
             case .failure(let msg):
                 status = (msg, true)
                 return
@@ -297,6 +306,12 @@ final class KeybindingEditorModel: ObservableObject {
             }
         }
         savedModes = modes
+        if case .success(let written) = readHomeWorkspaceRules(newText) {
+            homeRules = written.map { rule in
+                HomeWorkspaceRule(id: homeRules.first { $0.appId == rule.appId }?.id ?? rule.id, originalAppId: rule.appId, appId: rule.appId, workspace: rule.workspace)
+            }
+        }
+        savedHomeRules = homeRules
         loadedText = newText
         keyMapping = parsed.config.keyMapping.resolve()
         status = ("Saved to \(url.displayPath)", false)

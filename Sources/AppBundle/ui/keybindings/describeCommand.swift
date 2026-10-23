@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import Common
 
 /// Groups shown in the keybinding editor, in display order
 enum KeybindingCategory: String, CaseIterable {
@@ -24,6 +25,13 @@ private func describeCommand(_ raw: String) -> (title: String, category: Keybind
     let command = raw.trimmingCharacters(in: .whitespaces)
     if command.hasPrefix("exec-and-forget") {
         return (describeShell(String(command.dropFirst("exec-and-forget".count))), .apps)
+    }
+    if command.hasPrefix("focus-app"), let target = parseFocusAppTarget(command) {
+        return switch target {
+            case .defaultBrowser: ("Go to browser", .apps)
+            case .defaultTerminal: ("Go to terminal", .apps)
+            case .app(let app): ("Go to \(NSWorkspace.shared.urlForApplication(withBundleIdentifier: app)?.deletingPathExtension().lastPathComponent ?? app)", .apps)
+        }
     }
     let words = command.split(separator: " ").map(String.init)
     guard let name = words.first else { return ("No action", .unassigned) }
@@ -67,13 +75,24 @@ private func describeCommand(_ raw: String) -> (title: String, category: Keybind
     }
 }
 
+/// The app an `exec-and-forget` binding opens with `open -a` or AppleScript, e.g. "Google Chrome"
+func appOpened(by commands: [String]) -> String? {
+    guard let command = commands.singleOrNil()?.trimmingCharacters(in: .whitespaces), command.hasPrefix("exec-and-forget") else { return nil }
+    return appOpened(byScript: String(command.dropFirst("exec-and-forget".count)).trimmingCharacters(in: .whitespaces))
+}
+
+private func appOpened(byScript script: String) -> String? {
+    if let app = firstMatch(#"tell application "([^"]+)""#, script) { return app }
+    guard script.hasPrefix("open") else { return nil }
+    return firstMatch(#"-n?a\s+"([^"]+)""#, script) ?? firstMatch(#"-n?a\s+([^\s"]+)"#, script)
+}
+
 private func describeShell(_ script: String) -> String {
     let script = script.trimmingCharacters(in: .whitespaces)
-    if let app = firstMatch(#"tell application "([^"]+)""#, script) { return "Open \(app)" }
+    if let app = appOpened(byScript: script) {
+        return script.contains("--incognito") || script.contains("--private") ? "Open \(app) (private)" : "Open \(app)"
+    }
     if script.hasPrefix("open") {
-        if let app = firstMatch(#"-n?a\s+"([^"]+)""#, script) ?? firstMatch(#"-n?a\s+([^\s"]+)"#, script) {
-            return script.contains("--incognito") || script.contains("--private") ? "Open \(app) (private)" : "Open \(app)"
-        }
         if let file = firstMatch(#"-t\s+(\S+)"#, script) { return "Edit \((file as NSString).lastPathComponent)" }
         if let target = firstMatch(#"^open\s+(\S+)$"#, script) {
             return target == "~" ? "Open home folder" : "Open \(target)"

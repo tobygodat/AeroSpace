@@ -18,9 +18,8 @@ struct KeybindingPreset: Identifiable {
 
 /// Mirrors the Hyprland bindings shipped by Omarchy (https://github.com/basecamp/omarchy), translated to AeroSpace commands
 @MainActor func omarchyBindings(superKey s: String) -> [(key: String, command: String)] {
-    var result: [(key: String, command: String)] = [
-        ("\(s)-enter", presetTerminalCommand()),
-        ("\(s)-b", presetBrowserCommand()),
+    var result = omarchyAppShortcuts(superKey: s) + [
+        ("\(s)-shift-enter", presetTerminalCommand()),
         ("\(s)-shift-b", presetBrowserCommand()),
         ("\(s)-shift-f", "exec-and-forget open ~"),
         ("\(s)-w", "close"),
@@ -59,6 +58,21 @@ struct KeybindingPreset: Identifiable {
         ("\(s)-ctrl-right", "move-workspace-to-monitor right"),
         ("\(s)-shift-semicolon", "mode service"),
     ]
+    return result
+}
+
+/// Super+key jumps to the app wherever it is, or opens it. Omarchy's launch-or-focus apps, plus the browser and terminal
+@MainActor func omarchyAppShortcuts(superKey s: String) -> [(key: String, command: String)] {
+    let isInstalled = { (bundleId: String) in NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) != nil }
+    var result: [(key: String, command: String)] = [
+        ("\(s)-b", FocusAppTarget.defaultBrowser.focusAppCommand),
+        ("\(s)-enter", FocusAppTarget.defaultTerminal.focusAppCommand),
+        ("\(s)-shift-m", FocusAppTarget.app(isInstalled("com.spotify.client") ? "com.spotify.client" : "com.apple.Music").focusAppCommand),
+    ]
+    let optional = [("\(s)-shift-g", "org.whispersystems.signal-desktop"), ("\(s)-shift-o", "md.obsidian"), ("\(s)-shift-slash", "com.1password.1password")]
+    for (key, bundleId) in optional where isInstalled(bundleId) {
+        result.append((key, FocusAppTarget.app(bundleId).focusAppCommand))
+    }
     return result
 }
 

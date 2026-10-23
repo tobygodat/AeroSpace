@@ -6,6 +6,8 @@
 // --demo      before the snapshot: records ⌥⇧G into the first binding, changes one command, and saves
 // --appearance light|dark
 // --select N  expands the Nth binding of the main mode
+// --pane NAME  opens a Settings pane instead of the bindings (e.g. apps)
+// --app-picker  shows the app picker of the Apps pane instead
 // --edit N=command  with --demo: which binding's command to change (default 1=fullscreen)
 // --dump      prints the first bindings of the main mode
 // --redraw    forces a full layout and redraw before the snapshot
@@ -49,7 +51,11 @@ MainActor.assumeIsolated {
         case "dark": window.appearance = NSAppearance(named: .darkAqua)
         default: break
     }
-    window.contentView = NSHostingView(rootView: KeybindingEditorView(model: model))
+    window.contentView = NSHostingView(rootView: KeybindingEditorView(model: model, pane: argValue("--pane").flatMap(SettingsPane.init(rawValue:))))
+    if args.contains("--app-picker") {
+        window.contentView = NSHostingView(rootView: AppPicker { print("picked: \($0)") })
+        window.setContentSize(NSSize(width: 320, height: 380))
+    }
     window.center()
     window.makeKeyAndOrderFront(nil)
     app.activate(ignoringOtherApps: true)

@@ -73,6 +73,8 @@ struct KeybindingEditorView: View {
     @FocusState private var isSearchFocused: Bool
     /// Keeps the selected row in its group while its command is being edited, so it doesn't jump around
     @State private var stickyCategory: (id: UUID, category: KeybindingCategory)? = nil
+    /// nil shows the bindings of `model.selectedMode`
+    @State var pane: SettingsPane? = nil
 
     var body: some View {
         HStack(spacing: 0) {
@@ -91,6 +93,8 @@ struct KeybindingEditorView: View {
                 bottomBar
             }
             .background(KBTheme.background)
+            .disabled(pane != nil) // Keeps ⌘N and ⌘S of the hidden bindings list from firing
+            .overlay { if let pane { pane.view(editor: model).background(KBTheme.background) } }
         }
         .ignoresSafeArea(.container, edges: .top) // Run under the hidden title bar
         .frame(minWidth: 780, minHeight: 480)
@@ -122,11 +126,17 @@ struct KeybindingEditorView: View {
                     icon: mode.name == mainModeId ? "keyboard" : "square.stack.3d.up",
                     title: mode.name,
                     trailing: "\(mode.bindings.count)",
-                    isSelected: model.selectedMode == mode.name,
+                    isSelected: pane == nil && model.selectedMode == mode.name,
                 ) {
+                    pane = nil
                     model.selectedMode = mode.name
                     model.selectedBindingId = nil
                 }
+            }
+
+            SidebarLabel("Settings").padding(.top, 18)
+            ForEach(SettingsPane.allCases) { item in
+                SidebarItem(icon: item.icon, title: item.title, trailing: nil, isSelected: pane == item) { pane = item }
             }
 
             SidebarLabel("Presets").padding(.top, 18)
@@ -319,6 +329,24 @@ struct KeybindingEditorView: View {
     // MARK: Bottom bar
 
     private var bottomBar: some View {
+        EditorSaveBar(model: model, hint: "Click a shortcut to record new keys")
+    }
+
+    /// Invisible buttons that only exist for their keyboard shortcuts
+    private var shortcutButtons: some View {
+        Button("") { isSearchFocused = true }
+            .keyboardShortcut("f", modifiers: .command)
+            .opacity(0)
+            .allowsHitTesting(false)
+    }
+}
+
+/// Status, Reload, Revert and Save for everything edited in the window. Panes that edit the config show it too
+struct EditorSaveBar: View {
+    @ObservedObject var model: KeybindingEditorModel
+    let hint: String
+
+    var body: some View {
         HStack(spacing: 8) {
             if let status = model.status {
                 StatusDot(color: status.isError ? KBTheme.danger : KBTheme.success)
@@ -332,7 +360,7 @@ struct KeybindingEditorView: View {
                 Text("\(count) unsaved \(count == 1 ? "change" : "changes")")
                     .foregroundStyle(KBTheme.textSecondary)
             } else {
-                Text("Click a shortcut to record new keys")
+                Text(hint)
                     .foregroundStyle(KBTheme.textTertiary)
             }
             Spacer()
@@ -357,14 +385,6 @@ struct KeybindingEditorView: View {
         .font(.system(size: 12))
         .padding(.horizontal, 16)
         .frame(height: 46)
-    }
-
-    /// Invisible buttons that only exist for their keyboard shortcuts
-    private var shortcutButtons: some View {
-        Button("") { isSearchFocused = true }
-            .keyboardShortcut("f", modifiers: .command)
-            .opacity(0)
-            .allowsHitTesting(false)
     }
 }
 
@@ -606,7 +626,7 @@ struct KeybindingActionMenu: View {
         panel.prompt = "Choose"
         NSApp.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK, let url = panel.url {
-            set(openAppCommand(name: url.deletingPathExtension().lastPathComponent))
+            set(FocusAppTarget.app(Bundle(url: url)?.bundleIdentifier ?? url.deletingPathExtension().lastPathComponent).focusAppCommand)
         }
     }
 }
